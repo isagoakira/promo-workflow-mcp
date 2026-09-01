@@ -1,0 +1,21 @@
+{
+  "name": "@promo-workflow/mcp-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "promo-workflow-mcp": "dist/index.js"
+  },
+  "scripts": {
+    "prebuild": "npm run build --workspace=@promo-workflow/service",
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "2.0.0",
+    "@promo-workflow/service": "0.1.0",
+    "zod": "4.5.4"
+  }
+}

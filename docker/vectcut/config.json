@@ -1,0 +1,7 @@
+{
+  "draft_profile": "capcut_legacy",
+  "draft_domain": "https://www.capcutapi.top",
+  "port": 9001,
+  "preview_router": "/draft/downloader",
+  "is_upload_draft": false
+}

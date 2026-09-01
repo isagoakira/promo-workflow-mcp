@@ -1,0 +1,21 @@
+---
+name: promo-workflow-orchestration
+description: Advance an existing Promo Workflow through its local MCP state capsule. Use for selecting, planning, producing, or packaging promotional video or articles; do not use it for unrelated standalone copywriting.
+---
+
+# Promo Workflow Orchestration
+
+The local `promo_workflow` MCP service is the workflow authority. Start with `promo_get`, then follow its `pendingAction` and `agentWork` exactly.
+
+- Use `promo_run` only for the automatic stage transition it exposes.
+- Use `promo_commit` only for the named decision or submission requested by the capsule.
+- Preserve `expectedRevision` and reuse the same `idempotencyKey` only for a retry of the same action.
+- Do not skip a lock, replace a prior artifact, or infer a later-stage decision.
+
+## Load only the matching supervision
+
+- At creative outline or article structure work, load `promo-writing-supervision`.
+- At a video master or storyboard review, also load `promo-storyboard-supervision`.
+- Do not load either for topic fetching, state inspection, deterministic requirement compilation, or ordinary production-status updates.
+
+The Skills provide reasoning and review guidance only. They never change state themselves; return the requested structured submission to the MCP service.

@@ -1,0 +1,22 @@
+{
+  "name": "promo-workflow-guidance",
+  "version": "0.1.0",
+  "description": "Optional stage-specific guidance for the local Promo Workflow service.",
+  "author": {
+    "name": "Local developer"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Promo Workflow Guidance",
+    "shortDescription": "Stage guidance for a local promotion workflow.",
+    "longDescription": "A lightweight optional companion to Promo Workflow. It supplies focused writing and storyboard supervision while the local MCP service remains the only workflow-state authority.",
+    "developerName": "Local developer",
+    "category": "Productivity",
+    "capabilities": ["Stage-specific Skills", "Local MCP workflow connection"],
+    "defaultPrompt": [
+      "Show the current promotion workflow state.",
+      "Use the current workflow stage to prepare the next promotion decision."
+    ]
+  },
+  "mcpServers": "./.mcp.json"
+}
