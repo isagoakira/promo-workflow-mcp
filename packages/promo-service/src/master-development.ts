@@ -8,6 +8,7 @@ import type {
   LockedCreativeOutline,
   SharedAssetPlan,
   SourceAssetPlan,
+  SourceAssetCaptureProtocol,
   TimelineRange,
   VideoTimelineMaster,
   VideoTimelineShot,
@@ -46,19 +47,19 @@ export function createMasterDevelopmentBrief(input: CreateMasterDevelopmentBrief
     constraints: [
       "Expand the locked creative outline without changing its proposition, evidence boundary, or ending intent.",
       carrier === "video"
-        ? "Return a continuous time-aligned storyboard whose total duration exactly matches the selected budget."
+        ? "Return a continuous time-aligned storyboard whose total duration exactly matches the selected budget; mark every spoken shot CAM, VO, or MIXED and give it a recordingDirection."
         : "Return one complete Markdown manuscript with source-preserving claims and useful title alternatives.",
-      "Return one shared asset plan using source asset -> reusable fragment -> usage.",
+      "Return one shared asset plan using source asset -> reusable fragment -> usage; every source asset must carry a captureProtocol with visible states, handles, and backup strategy.",
       "Every ordinary source asset must have two meaningful usages; a single-use asset needs an essential one-off reason.",
       "Use geek-product-promo-writing for writing supervision and storyboard-direction for video craft supervision.",
       "Ask a Grill question only for a blocking choice; do not use it for local wording, timing, or ordinary reuse fixes.",
     ],
     requestedOutput: {
       description: carrier === "video"
-        ? "A complete video storyboard master and shared asset plan."
+        ? "A complete video storyboard master and shared asset plan. It must be sufficient to derive the spoken-lines and recording-execution deliverables without inventing a new claim."
         : "A complete article manuscript master and shared asset plan.",
       fields: carrier === "video"
-        ? ["carrier", "workingTitle", "targetDurationSeconds", "shots", "primaryCallToAction", "assetPlan"]
+        ? ["carrier", "workingTitle", "targetDurationSeconds", "shots[id,timeRange,shotPurpose,spokenContent,spokenDelivery,recordingDirection,visualAction,evidenceRefs,assetUsageIds]", "assetPlan[sourceAssets.captureProtocol]", "primaryCallToAction"]
         : ["carrier", "title", "alternativeTitles", "bodyMarkdown", "assetPlacements", "primaryCallToAction", "assetPlan"],
     },
     validationRules: [
@@ -117,6 +118,8 @@ function readVideoShot(value: unknown, index: number): VideoTimelineShot {
     timeRange: readTimeRange(shot.timeRange, `master.shots[${index}].timeRange`),
     shotPurpose: requiredText(shot.shotPurpose, `master.shots[${index}].shotPurpose`),
     spokenContent: optionalTextOrNull(shot.spokenContent, `master.shots[${index}].spokenContent`),
+    spokenDelivery: readSpokenDelivery(shot.spokenDelivery, shot.spokenContent, `master.shots[${index}].spokenDelivery`),
+    recordingDirection: optionalTextOrNull(shot.recordingDirection, `master.shots[${index}].recordingDirection`),
     sound: optionalTextOrNull(shot.sound, `master.shots[${index}].sound`),
     visualAction: requiredText(shot.visualAction, `master.shots[${index}].visualAction`),
     composition: requiredText(shot.composition, `master.shots[${index}].composition`),
@@ -172,6 +175,7 @@ function readSourceAsset(value: unknown, index: number): SourceAssetPlan {
     purpose: requiredText(source.purpose, `master.assetPlan.sourceAssets[${index}].purpose`),
     evidenceRole: requiredText(source.evidenceRole, `master.assetPlan.sourceAssets[${index}].evidenceRole`),
     productionIntent: requiredText(source.productionIntent, `master.assetPlan.sourceAssets[${index}].productionIntent`),
+    captureProtocol: readCaptureProtocol(source.captureProtocol, index),
     constraints: readTextArray(source.constraints, `master.assetPlan.sourceAssets[${index}].constraints`),
     preferredRoute: optionalTextOrNull(source.preferredRoute, `master.assetPlan.sourceAssets[${index}].preferredRoute`),
     reusableFragments: readArray(source.reusableFragments, `master.assetPlan.sourceAssets[${index}].reusableFragments`)
@@ -179,6 +183,20 @@ function readSourceAsset(value: unknown, index: number): SourceAssetPlan {
     usageIds: readTextArray(source.usageIds, `master.assetPlan.sourceAssets[${index}].usageIds`),
     essentialOneOffReason: optionalTextOrNull(source.essentialOneOffReason, `master.assetPlan.sourceAssets[${index}].essentialOneOffReason`),
   };
+}
+
+function readCaptureProtocol(value: unknown, sourceIndex: number): SourceAssetCaptureProtocol {
+  const protocol = readRecord(value, `master.assetPlan.sourceAssets[${sourceIndex}].captureProtocol`);
+  const captureMode = requiredLiteral(protocol.captureMode, `master.assetPlan.sourceAssets[${sourceIndex}].captureProtocol.captureMode`, ["existing", "capture", "generative", "postproduction"] as const);
+  const continuousPath = optionalTextOrNull(protocol.continuousPath, `master.assetPlan.sourceAssets[${sourceIndex}].captureProtocol.continuousPath`);
+  const editingHandles = optionalTextOrNull(protocol.editingHandles, `master.assetPlan.sourceAssets[${sourceIndex}].captureProtocol.editingHandles`);
+  const backupStrategy = optionalTextOrNull(protocol.backupStrategy, `master.assetPlan.sourceAssets[${sourceIndex}].captureProtocol.backupStrategy`);
+  const requiredVisibleStates = readTextArray(protocol.requiredVisibleStates, `master.assetPlan.sourceAssets[${sourceIndex}].captureProtocol.requiredVisibleStates`);
+  if (captureMode === "capture" && (!continuousPath || !editingHandles || !backupStrategy)) {
+    throw new Error(`Captured source ${sourceIndex} needs continuousPath, editingHandles, and backupStrategy.`);
+  }
+  if (requiredVisibleStates.length === 0) throw new Error(`Source ${sourceIndex} needs at least one requiredVisibleState.`);
+  return { captureMode, continuousPath, requiredVisibleStates, editingHandles, backupStrategy };
 }
 
 function readAssetFragment(value: unknown, sourceIndex: number, sourceAssetId: string, index: number): AssetFragmentPlan {
@@ -234,6 +252,15 @@ function validateVideoMaster(master: VideoTimelineMaster, errors: string[]): voi
     }
     if (shot.timeRange.endMs <= shot.timeRange.startMs) {
       errors.push(`Shot ${shot.id} must have a positive time range.`);
+    }
+    if (shot.spokenContent && shot.spokenDelivery === null) {
+      errors.push(`Shot ${shot.id} has spokenContent but no spokenDelivery.`);
+    }
+    if (!shot.spokenContent && shot.spokenDelivery !== null) {
+      errors.push(`Shot ${shot.id} has spokenDelivery but no spokenContent.`);
+    }
+    if (shot.spokenContent && !shot.recordingDirection) {
+      errors.push(`Shot ${shot.id} has spokenContent but no recordingDirection.`);
     }
     previousEnd = shot.timeRange.endMs;
   }
@@ -379,6 +406,14 @@ function requiredText(value: unknown, field: string): string {
 function optionalTextOrNull(value: unknown, field: string): string | null {
   if (value === undefined || value === null) return null;
   return requiredText(value, field);
+}
+
+function readSpokenDelivery(value: unknown, spokenContent: unknown, field: string): "CAM" | "VO" | "MIXED" | null {
+  if (spokenContent === undefined || spokenContent === null) {
+    if (value === undefined || value === null) return null;
+    return requiredLiteral(value, field, ["CAM", "VO", "MIXED"] as const);
+  }
+  return requiredLiteral(value, field, ["CAM", "VO", "MIXED"] as const);
 }
 
 function readTextArray(value: unknown, field: string): readonly string[] {

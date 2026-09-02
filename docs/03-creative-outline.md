@@ -7,7 +7,7 @@ Turn the locked topic and baseline into two linked outputs in the same node:
 1. one cross-media creative spine;
 2. one outline adapted to the current carrier and length tier.
 
-This node decides what the content is doing and how it moves. It does not write the finished article, the line-by-line spoken script, the shot-by-shot production plan, or SRT subtitles.
+This node decides what the content is doing and how it moves. For video it also locks a **大纲脚本**: a segment-level bridge between the creative route and the storyboard. It does not write the finished article, the line-by-line spoken script, the shot-by-shot production plan, or SRT subtitles.
 
 ## State transition
 
@@ -117,7 +117,7 @@ The following fields are open and may be empty:
 
 `segmentPurpose` is primary. Speech and presentation are implementations of that purpose. A presenter may explain a product, interview a founder, share an experience, react to a result, or perform another useful action. Direct-to-camera, narration, interview, demo, animation, mixed presentation, and visual-only passages are all valid. There is no required voiceover or subtitle occupancy ratio.
 
-The video outline also records its hook and first visible frame, unsupported claims, ending, and at most one primary call to action.
+The video outline also records its hook and first visible frame, unsupported claims, ending, and at most one primary call to action. On lock the service writes `03-creative-outline/outline-script.json`; each beat exposes its narrative task, presenter direction, visible promise, proof target and transition. This is deliberately not a rough article or a miniature storyboard: it prevents Node 4 from inventing the evidence and scene logic during expansion.
 
 ## Article outline
 
@@ -159,6 +159,7 @@ topicId: "..."
 budget: "video/article tier and target"
 creativeSpine: "cross-media creative structure"
 outline: "video segments or article sections"
+outlineScript: "video only: segment task -> visible promise -> proof target"
 macroStyleReview: "geek-product-promo-writing macro review"
 confirmedAt: "ISO-8601 timestamp"
 ```

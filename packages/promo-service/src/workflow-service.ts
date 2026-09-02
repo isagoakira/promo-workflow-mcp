@@ -25,6 +25,7 @@ import { createMasterDevelopmentBrief, readMasterDraft, validateMasterDraft } fr
 import { createArticleProductionArtifacts, createProductionUnitPlan, getArticleReviewGate, getProductionControl, type ProductionUnitPlan } from "./production.js";
 import { validateProductionResults, type ProductionUnitAcceptanceResult } from "./production-results.js";
 import { compileRequirements, type CompiledRequirementSet, type MasterAssetUsage } from "./requirements-compiler.js";
+import { createOutlineScript, createPreproductionMaterialPlan, createRecordingExecution, createSpokenScript } from "./video-preproduction-deliverables.js";
 import { createReleasePackagingBrief, getProductionArtifactIds, readReleasePackagingDraft, validateReleasePackagingDraft } from "./release-packaging.js";
 import { createFetchBrief, TopicMatchingEngine } from "./selection/matcher.js";
 import type { SelectionEngine } from "./selection/types.js";
@@ -223,8 +224,21 @@ export class WorkflowService {
         },
         parentArtifactIds: artifactIdsFor(record.context),
       });
-      record.context = withArtifact(record.context, artifact, { requirementSetArtifactId: artifact.artifactId });
-      record.summary = "已从主稿编译最小素材需求；视频字幕计划已一并生成。";
+      let nextContext = withArtifact(record.context, artifact, { requirementSetArtifactId: artifact.artifactId });
+      if (record.carrier === "video") {
+        const contentMaster = await this.contentMasterFor(record.context);
+        if (contentMaster.master.carrier !== "video") throw new Error("Video requirements require a locked video master.");
+        const materialPlan = await this.artifacts.write({
+          kind: "preproduction_material_plan",
+          content: createPreproductionMaterialPlan(contentMaster.master, requirements),
+          parentArtifactIds: [artifact.artifactId],
+        });
+        nextContext = withArtifact(nextContext, materialPlan, {
+          preproductionMaterialPlanArtifactId: materialPlan.artifactId,
+        });
+      }
+      record.context = nextContext;
+      record.summary = "已从主稿生成前期素材执行包和视频字幕计划。";
     } else if (record.state === "REQUIREMENTS_READY") {
       const plan = await this.createProductionPlan(record);
       const usesVectCut = record.carrier === "video" && videoBackendFor(record.context) === "vectcut";
@@ -498,7 +512,18 @@ export class WorkflowService {
           },
           parentArtifactIds: artifactIdsFor(record.context),
         });
-        record.context = withArtifact(record.context, artifact, { creativeOutlineArtifactId: artifact.artifactId });
+        let nextContext = withArtifact(record.context, artifact, { creativeOutlineArtifactId: artifact.artifactId });
+        if (draft.outline.carrier === "video") {
+          const outlineScript = await this.artifacts.write({
+            kind: "outline_script",
+            content: createOutlineScript({
+              topicId: requireText(record.context.topicId, "topicId"), budget, ...draft, confirmedAt: new Date().toISOString(),
+            }),
+            parentArtifactIds: [artifact.artifactId],
+          });
+          nextContext = withArtifact(nextContext, outlineScript, { outlineScriptArtifactId: outlineScript.artifactId });
+        }
+        record.context = nextContext;
         delete record.context.outlineDraftArtifactId;
         delete record.context.outlineGrillCount;
         delete record.context.unresolvedDecisionIds;
@@ -560,7 +585,20 @@ export class WorkflowService {
           },
           parentArtifactIds: artifactIdsFor(record.context),
         });
-        record.context = withArtifact(record.context, artifact, { contentMasterArtifactId: artifact.artifactId });
+        let nextContext = withArtifact(record.context, artifact, { contentMasterArtifactId: artifact.artifactId });
+        if (draft.master.carrier === "video") {
+          const spokenScript = await this.artifacts.write({
+            kind: "spoken_script", content: createSpokenScript(draft.master), parentArtifactIds: [artifact.artifactId],
+          });
+          const recordingExecution = await this.artifacts.write({
+            kind: "recording_execution", content: createRecordingExecution(draft.master), parentArtifactIds: [artifact.artifactId, spokenScript.artifactId],
+          });
+          nextContext = withArtifacts(nextContext, [spokenScript, recordingExecution], {
+            spokenScriptArtifactId: spokenScript.artifactId,
+            recordingExecutionArtifactId: recordingExecution.artifactId,
+          });
+        }
+        record.context = nextContext;
         delete record.context.masterDraftArtifactId;
         delete record.context.masterGrillCount;
         delete record.context.unresolvedDecisionIds;

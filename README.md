@@ -21,7 +21,7 @@ npm start
 
 服务默认把状态写入 `data/workflows.json`。该目录已被 Git 忽略；如需把数据移到其他位置，设置 `PROMO_WORKFLOW_DATA_DIR` 环境变量即可。
 
-材料卡、大纲、母稿、分镜、SRT、预览等内容先存入同目录的 `data/artifacts/`。每份工件不可变，带 SHA-256 内容哈希、父工件引用和版本号。与此同时，服务会把每个节点的当前交付物投影到 `data/workspace/<workflowId>/`：例如 `02-campaign-intent/campaign-intent.json`、`03-creative-outline/locked-outline.json`、`04-master/locked-master.json`。固定路径方便下一位 Agent 直接读取；同目录的 `*.artifact_<id>.json` 保留精确制品版本，`manifest.json` 列出全部可用交付物。
+材料卡、大纲、母稿、分镜、口播、录制执行、前期素材执行包、SRT、预览等内容先存入同目录的 `data/artifacts/`。每份工件不可变，带 SHA-256 内容哈希、父工件引用和版本号。与此同时，服务会把每个节点的当前交付物投影到 `data/workspace/<workflowId>/`：例如 `03-creative-outline/outline-script.json`、`04-master/locked-master.json`、`04-master/spoken-script.json`、`04-master/recording-execution.json`、`05-requirements/preproduction-material-plan.json`。固定路径方便下一位 Agent 直接读取；同目录的 `*.artifact_<id>.json` 保留精确制品版本，`manifest.json` 列出全部可用交付物。
 
 任何支持 stdio MCP 的 Agent 都可以直接使用根目录的 [`.mcp.json`](.mcp.json)。它暴露四个稳定工具：
 
@@ -82,11 +82,11 @@ Agent 完成抓取后，以 `promo_commit(kind=submit_fetched_topics)` 回填 1�
 
 基调节点从一个具体读者场景开始。`promo_run` 返回一张决策卡，Agent 通过 `propose_baseline` 提交宣传核心、用户引导意图和 `campaignIntent`（即时收益、长期价值、要改变的认知、要展示的证据、表达边界、CTA）。每轮最多一个场景化 Grill；用户回答后会写入 `00-control/decision-ledger.json`，Agent 必须提交一版声明已吸收该决定的修订稿，才能 `lock_baseline`。
 
-创意与大纲节点不再直接吐出“痛点—机制—CTA”模板。它先通过 `propose_creative_routes` 提出 2–3 条互斥的场景路线（开场、张力、证明方式、读者变化），用户用 `select_creative_route` 选定一条；Agent 才展开大纲。推文每一节强制说明段落任务、场景/动作、读者变化、证据、作者判断和不该写什么。场景 Grill 的回答同样必须触发一版新大纲。视频支持 2/5/10 分钟，推文支持 800–1,500、2,000–3,500、4,000–6,000 字三档。
+创意与大纲节点不再直接吐出“痛点—机制—CTA”模板。它先通过 `propose_creative_routes` 提出 2–3 条互斥的场景路线（开场、张力、证明方式、读者变化），用户用 `select_creative_route` 选定一条；Agent 才展开大纲。视频锁定时会额外生成 `outline-script.json`：每段明确叙事任务、口播方向、可见承诺、证明目标和转场，作为创意到分镜之间不可跳过的桥。推文每一节强制说明段落任务、场景/动作、读者变化、证据、作者判断和不该写什么。场景 Grill 的回答同样必须触发一版新大纲。视频支持 2/5/10 分钟，推文支持 800–1,500、2,000–3,500、4,000–6,000 字三档。
 
-母版细化节点整稿先行：视频生成完整时间轴分镜母版，推文生成完整文章母稿。每版母稿都必须附一份独立的 `04-master/master-review.json`，记录文风、证据、素材复用与视频分镜审校；若 Grill 改变主稿，修订版及审校单都会保留。它默认自动修复，只对阻塞性决策 Grill，并由 `geek-product-promo-writing` 与 `storyboard-direction` 分别监督文字和分镜。共享素材按 `source asset -> fragment -> usage` 规划，普通素材至少两个有效使用位，必要的一次性素材必须说明理由。
+母版细化节点整稿先行：视频生成完整时间轴分镜母版，推文生成完整文章母稿。视频每个有台词镜头必须标记 `CAM`、`VO` 或 `MIXED`，并写明具体录制方向；锁定后服务从同一份事实源投影出 `04-master/spoken-script.json` 与 `04-master/recording-execution.json`，不会为它们另编事实。每版母稿都必须附一份独立的 `04-master/master-review.json`，记录文风、证据、素材复用与视频分镜审校；若 Grill 改变主稿，修订版及审校单都会保留。它默认自动修复，只对阻塞性决策 Grill，并由 `geek-product-promo-writing` 与 `storyboard-direction` 分别监督文字和分镜。共享素材按 `source asset -> fragment -> usage` 规划，普通素材至少两个有效使用位，必要的一次性素材必须说明理由。
 
-需求编译节点完全自动，将消费侧使用位合并为最小、工具无关的素材需求集，并从视频母版派生 SRT。`05-requirements/material-requirements.json` 会显式记录它由哪一版锁定主稿派生；实际拍摄、AI 生成、剪辑和工具选择属于后续制作节点；只有 `capability_gap` 会触发需求回流。
+需求编译节点完全自动，将消费侧使用位合并为最小、工具无关的素材需求集，并从视频母版派生 SRT。视频只生成一份 `05-requirements/preproduction-material-plan.json`：它以高复用母素材组织全量前期工作，同时锁定演示环境、连续采集路径、可见验收状态、剪辑余量、备份与事实性降级边界；CAM/VO 已在 Node 4 锁定，不在此重复编写。`05-requirements/material-requirements.json` 会显式记录它由哪一版锁定主稿派生；实际拍摄、AI 生成、剪辑和工具选择属于后续制作节点；只有 `capability_gap` 会触发需求回流。
 
 制作节点共用 `PRODUCING -> PRODUCTION_LOCKED` 和极简 `production_unit` 生命周期。每次单元更新都会写入 `06-production/production-checkpoint.json`，包含计划、实时状态、验收制品与来源；调用文章/视频后端时再写入 `06-production/backend-handoff.json`。因此制作过程不再只有最终锁定结果，任一 Agent 都能从检查点恢复、审阅或退回对应单元。
 
@@ -147,4 +147,4 @@ docs/                已确认架构和后续决策
 
 ## 可选指导插件
 
-`plugins/promo-workflow-guidance/` 与服务一同维护、单独安装。`agentWork.guidance` 只暴露当前节点允许调用的浅 policy 概览和 `promo_guidance` 路由；Agent 必须通过该路由读取 MCP 内置的完整指导。MCP 返回的是完整的流程编排、分镜监督、产品口播策划、`Geek Product Promo Writing` 主技能，以及句子级文风、证据链、公众号、视频包装四份参考资料。视频节点还会按需加载一组真实交付物样本（分镜、口播、录制执行、最小素材与剩余需求），用于锚定制品结构、交接和验收；样本中的产品、人物与案例事实不构成通用规则。流程正确性不依赖宿主是否安装插件，插件只用于把同一组主题作为宿主级增强挂载。
+`plugins/promo-workflow-guidance/` 与服务一同维护、单独安装。`agentWork.guidance` 只暴露当前节点允许调用的浅 policy 概览和 `promo_guidance` 路由；Agent 必须通过该路由读取 MCP 内置的完整指导。MCP 返回的是完整的流程编排、分镜监督、产品口播策划、`Geek Product Promo Writing` 主技能，以及句子级文风、证据链、公众号、视频包装四份参考资料。视频节点还会按需加载不可缩减的“视频前期交付模板契约”（大纲脚本、分镜、口播、录制执行、前期素材执行包的固定章节、字段粒度、交接 ID 与验收）和便于快速定位的单项结构卡。案例中的产品、人物与事实不构成通用规则；其交付结构、分析角度、验收粒度和事实边界才是默认规则。流程正确性不依赖宿主是否安装插件，插件只用于把同一组主题作为宿主级增强挂载。

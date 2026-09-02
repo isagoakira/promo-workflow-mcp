@@ -7,7 +7,7 @@ Expand the locked creative spine and carrier outline into one complete, reviewab
 - video: a time-aligned storyboard master;
 - article: a complete manuscript master.
 
-This node decides the exact content and presentation. It does not shoot, generate, edit, render, lay out, publish, or export production derivatives.
+This node decides the exact content and presentation. For video it locks three pre-production handoffs: **分镜稿** (the locked storyboard master), **口播台词稿**, and **口播录制执行稿**. It does not shoot, generate, edit, render, lay out, publish, or export production derivatives.
 
 ## State transition
 
@@ -86,6 +86,7 @@ The asset plan records:
 - reusable fragments and transformations;
 - all target usages;
 - unique acquisition count, planned usage count, and justified one-offs.
+- a `captureProtocol` for every source asset: acquisition mode, continuous capture path where applicable, required visible states, edit handles, and backup strategy.
 
 Asset reuse may change implementation details, but it cannot change the locked proposition, story movement, or factual conclusion.
 
@@ -108,6 +109,8 @@ id: "S01"
 timeRange: { startMs: 0, endMs: 8000 }
 shotPurpose: "What this advances"
 spokenContent: "Dialogue, interview audio, narration, or null"
+spokenDelivery: "CAM | VO | MIXED | null"
+recordingDirection: "How the specific spoken passage must be recorded, or null"
 sound: "Music, SFX, room tone, silence, or null"
 visualAction: "What is visibly happening"
 composition: "Framing and focal hierarchy"
@@ -120,7 +123,7 @@ transition: "Picture or sound connection"
 
 Shot ranges are continuous and total exactly 120, 300, or 600 seconds. Spoken content may be absent. There is no cut-frequency rule, fixed storyboard grid, voiceover occupancy target, or ban on consecutive talking-head passages.
 
-`storyboard-direction` supervises the video master. `geek-product-promo-writing` supervises the spoken and narrative writing.
+`storyboard-direction` supervises the video master. `geek-product-promo-writing` supervises the spoken and narrative writing. A spoken shot must explicitly name its recording mode (`CAM`, `VO`, or `MIXED`) and a recording direction; an unspoken shot uses `null` for both. The service then projects the locked master into `04-master/spoken-script.json` and `04-master/recording-execution.json`. They inherit time, visual coverage, evidence and source links from the master; they do not create fresh factual claims or assign people.
 
 ## Article master
 
@@ -149,4 +152,4 @@ Advance to `MASTER_LOCKED` only when:
 - ordinary source assets have at least two usages or a one-off justification;
 - no unresolved choice can materially change the work.
 
-Only the locked master, reviews, and shared asset plan are durable.
+The locked master/review/shared asset plan and the derived video handoffs are durable.

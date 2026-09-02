@@ -83,10 +83,11 @@ export function createCreativeOutlineBrief(input: CreateCreativeOutlineBriefInpu
         ? `Video segment durations must total exactly ${input.budget.targetDurationSeconds} seconds.`
         : "Every article section needs a distinct sectionPurpose and non-empty content.",
       "Apply geek-product-promo-writing at macro level only; do not write the finished manuscript or shot-by-shot script.",
+      "For video, every outline segment must state its narrative task, visible promise, proof target, and transition so the service can issue a standalone outline script.",
       "Ask at most one consequential Grill question at a time, and only when it can change multiple beats or the evidence strategy.",
     ],
     requestedOutput: {
-      description: "One selected route, one creative spine, one carrier-specific outline, a macro-style review, and at most one scenario Grill question.",
+      description: "One selected route, one creative spine, one carrier-specific outline (including the video outline-script inputs), a macro-style review, and at most one scenario Grill question.",
       fields: ["selectedRouteId", "creativeSpine", "outline", "macroStyleReview", "pendingQuestion", "incorporatesDecisionIds"],
     },
     validationRules: [

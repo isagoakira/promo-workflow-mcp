@@ -219,6 +219,7 @@ test("video workflow connects outline, master, requirements, production, and rel
     context: { outlineDraft: validVideoOutlineDraft() }, idempotencyKey: "e2e-outline-draft",
   });
   const lockedOutline = await service.commit({ workflowId: created.workflowId, expectedRevision: outline.revision, kind: "lock_outline", summary: "Lock outline", context: {}, idempotencyKey: "e2e-lock-outline" });
+  assert.equal(lockedOutline.artifactRefs.some((artifact) => artifact.kind === "outline_script"), true);
   const mastering = await service.run({ workflowId: created.workflowId, expectedRevision: lockedOutline.revision, idempotencyKey: "e2e-master-brief" });
   assert.equal(mastering.agentWork.stage, "master_development");
   const master = await service.commit({
@@ -227,9 +228,12 @@ test("video workflow connects outline, master, requirements, production, and rel
   });
   assert.equal(master.artifactRefs.some((artifact) => artifact.kind === "master_review"), true);
   const lockedMaster = await service.commit({ workflowId: created.workflowId, expectedRevision: master.revision, kind: "lock_master", summary: "Lock master", context: {}, idempotencyKey: "e2e-lock-master" });
+  assert.equal(lockedMaster.artifactRefs.some((artifact) => artifact.kind === "spoken_script"), true);
+  assert.equal(lockedMaster.artifactRefs.some((artifact) => artifact.kind === "recording_execution"), true);
   const requirements = await service.run({ workflowId: created.workflowId, expectedRevision: lockedMaster.revision, idempotencyKey: "e2e-compile" });
   assert.equal(requirements.state, "REQUIREMENTS_READY");
   assert.equal(requirements.artifactRefs.some((artifact) => artifact.kind === "requirement_set"), true);
+  assert.equal(requirements.artifactRefs.some((artifact) => artifact.kind === "preproduction_material_plan"), true);
   const producing = await service.run({ workflowId: created.workflowId, expectedRevision: requirements.revision, idempotencyKey: "e2e-production-plan" });
   assert.equal(producing.state, "PRODUCING");
   const updated = await service.commit({
@@ -379,7 +383,7 @@ function validArticleMasterDraft() {
   return {
     carrier: "article", title: "把一次演示变成可复现的工作流", alternativeTitles: ["让重跑保留状态", "本地状态如何减少猜测"], bodyMarkdown: body,
     assetPlacements: [{ id: "P01", anchor, assetUsageId: "usage-article", editorialPurpose: "Show the recorded product result." }], primaryCallToAction: "从一条可复现的流程开始。",
-    assetPlan: { sourceAssets: [{ id: "source-screen", purpose: "Show the product result", evidenceRole: "actual product evidence", productionIntent: "product screen recording", constraints: ["actual product evidence"], preferredRoute: "human", reusableFragments: [{ id: "fragment-result", sourceAssetId: "source-screen", extraction: "result", transformation: null }], usageIds: ["usage-article"], essentialOneOffReason: "The final proof frame is unique." }], usages: [{ id: "usage-article", carrier: "article", targetId: "P01", purpose: "Show result", sourceAssetId: "source-screen", fragmentId: "fragment-result" }], uniqueAcquisitionCount: 1, plannedUsageCount: 1, oneOffAssetIds: ["source-screen"] },
+    assetPlan: { sourceAssets: [{ id: "source-screen", purpose: "Show the product result", evidenceRole: "actual product evidence", productionIntent: "product screen recording", captureProtocol: { captureMode: "capture", continuousPath: "Open the product, complete the test, hold the result.", requiredVisibleStates: ["product result"], editingHandles: "Hold the result for 3 seconds.", backupStrategy: "Record a clean backup." }, constraints: ["actual product evidence"], preferredRoute: "human", reusableFragments: [{ id: "fragment-result", sourceAssetId: "source-screen", extraction: "result", transformation: null }], usageIds: ["usage-article"], essentialOneOffReason: "The final proof frame is unique." }], usages: [{ id: "usage-article", carrier: "article", targetId: "P01", purpose: "Show result", sourceAssetId: "source-screen", fragmentId: "fragment-result" }], uniqueAcquisitionCount: 1, plannedUsageCount: 1, oneOffAssetIds: ["source-screen"] },
   };
 }
 
@@ -392,12 +396,12 @@ function validArticleReleaseDraft(evidence) {
 }
 
 function validVideoMasterDraft() {
-  const source = { id: "source-demo", purpose: "Show one workflow", evidenceRole: "recorded product evidence", productionIntent: "screen recording", constraints: ["recorded proof only"], preferredRoute: "human", reusableFragments: [{ id: "fragment-a", sourceAssetId: "source-demo", extraction: "failure", transformation: null }, { id: "fragment-b", sourceAssetId: "source-demo", extraction: "result", transformation: null }], usageIds: ["usage-1", "usage-2"], essentialOneOffReason: null };
+  const source = { id: "source-demo", purpose: "Show one workflow", evidenceRole: "recorded product evidence", productionIntent: "screen recording", captureProtocol: { captureMode: "capture", continuousPath: "Start the failed rerun, then complete a stable rerun.", requiredVisibleStates: ["failed rerun", "stable rerun"], editingHandles: "Pause 3 seconds before and after each result.", backupStrategy: "Record a second clean take." }, constraints: ["recorded proof only"], preferredRoute: "human", reusableFragments: [{ id: "fragment-a", sourceAssetId: "source-demo", extraction: "failure", transformation: null }, { id: "fragment-b", sourceAssetId: "source-demo", extraction: "result", transformation: null }], usageIds: ["usage-1", "usage-2"], essentialOneOffReason: null };
   return {
     carrier: "video", workingTitle: "Repeatable local workflows", targetDurationSeconds: 120,
     shots: [
-      { id: "S01", timeRange: { startMs: 0, endMs: 60000 }, shotPurpose: "Show failure", spokenContent: "A workflow fails when it forgets its state.", sound: null, visualAction: "Show the failed rerun.", composition: "Screen close-up", cameraBehavior: null, onScreenText: null, evidenceRefs: [], assetUsageIds: ["usage-1"], transition: null },
-      { id: "S02", timeRange: { startMs: 60000, endMs: 120000 }, shotPurpose: "Show result", spokenContent: null, sound: null, visualAction: "Show the stable rerun.", composition: "Screen close-up", cameraBehavior: null, onScreenText: null, evidenceRefs: [], assetUsageIds: ["usage-2"], transition: null },
+      { id: "S01", timeRange: { startMs: 0, endMs: 60000 }, shotPurpose: "Show failure", spokenContent: "A workflow fails when it forgets its state.", spokenDelivery: "VO", recordingDirection: "State the observed failure over the real screen recording.", sound: null, visualAction: "Show the failed rerun.", composition: "Screen close-up", cameraBehavior: null, onScreenText: null, evidenceRefs: [], assetUsageIds: ["usage-1"], transition: null },
+      { id: "S02", timeRange: { startMs: 60000, endMs: 120000 }, shotPurpose: "Show result", spokenContent: null, spokenDelivery: null, recordingDirection: null, sound: null, visualAction: "Show the stable rerun.", composition: "Screen close-up", cameraBehavior: null, onScreenText: null, evidenceRefs: [], assetUsageIds: ["usage-2"], transition: null },
     ],
     primaryCallToAction: "Try one controlled rerun.",
     assetPlan: { sourceAssets: [source], usages: [{ id: "usage-1", carrier: "video", targetId: "S01", purpose: "failure", sourceAssetId: "source-demo", fragmentId: "fragment-a" }, { id: "usage-2", carrier: "video", targetId: "S02", purpose: "result", sourceAssetId: "source-demo", fragmentId: "fragment-b" }], uniqueAcquisitionCount: 1, plannedUsageCount: 2, oneOffAssetIds: [] },

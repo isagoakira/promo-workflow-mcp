@@ -336,11 +336,25 @@ export interface SourceAssetPlan {
   purpose: string;
   evidenceRole: string;
   productionIntent: string;
+  /** Pre-production contract for obtaining this one source asset. */
+  captureProtocol: SourceAssetCaptureProtocol;
   constraints: readonly string[];
   preferredRoute: string | null;
   reusableFragments: readonly AssetFragmentPlan[];
   usageIds: readonly string[];
   essentialOneOffReason: string | null;
+}
+
+export interface SourceAssetCaptureProtocol {
+  captureMode: "existing" | "capture" | "generative" | "postproduction";
+  /** Ordered path for a live capture; null when no live capture is needed. */
+  continuousPath: string | null;
+  /** Observable states that must be available to edit or verify later. */
+  requiredVisibleStates: readonly string[];
+  /** Required material before/after every usable action or state. */
+  editingHandles: string | null;
+  /** Main/backup or a reason why no backup is appropriate. */
+  backupStrategy: string | null;
 }
 
 export interface SharedAssetPlan {
@@ -361,6 +375,10 @@ export interface VideoTimelineShot {
   timeRange: TimelineRange;
   shotPurpose: string;
   spokenContent: string | null;
+  /** Where the spoken content is recorded. Null only when spokenContent is null. */
+  spokenDelivery: "CAM" | "VO" | "MIXED" | null;
+  /** Capture-specific instruction, not a direction to invent a new shot. */
+  recordingDirection: string | null;
   sound: string | null;
   visualAction: string;
   composition: string;

@@ -13,6 +13,7 @@ const sharedPlan = {
     purpose: "Show the product operating in its real interface.",
     evidenceRole: "product evidence",
     productionIntent: "Record one complete product walkthrough.",
+    captureProtocol: { captureMode: "capture", continuousPath: "Open the real product, complete the walkthrough, hold the result.", requiredVisibleStates: ["initial state", "completed result"], editingHandles: "Hold each key state for 3 seconds before and after the action.", backupStrategy: "Record a primary and backup walkthrough." },
     constraints: ["Do not imply features outside the captured build."],
     preferredRoute: "screen-recording",
     reusableFragments: [
@@ -57,8 +58,8 @@ test("parses and validates a continuous video storyboard with reused source mate
     workingTitle: "State control in action",
     targetDurationSeconds: 120,
     shots: [
-      { id: "S01", timeRange: { startMs: 0, endMs: 60000 }, shotPurpose: "Set up the failure", spokenContent: "This is where workflows break.", sound: null, visualAction: "Show the stalled process.", composition: "Interface close-up", cameraBehavior: null, onScreenText: null, evidenceRefs: [], assetUsageIds: ["usage-1"], transition: "Cut on the problem." },
-      { id: "S02", timeRange: { startMs: 60000, endMs: 120000 }, shotPurpose: "Resolve the failure", spokenContent: null, sound: "Soft confirmation tone", visualAction: "Show the stateful result.", composition: "Result fills frame", cameraBehavior: null, onScreenText: "State retained", evidenceRefs: ["source-1"], assetUsageIds: ["usage-2"], transition: null },
+      { id: "S01", timeRange: { startMs: 0, endMs: 60000 }, shotPurpose: "Set up the failure", spokenContent: "This is where workflows break.", spokenDelivery: "VO", recordingDirection: "Calm observation over the real failed screen.", sound: null, visualAction: "Show the stalled process.", composition: "Interface close-up", cameraBehavior: null, onScreenText: null, evidenceRefs: [], assetUsageIds: ["usage-1"], transition: "Cut on the problem." },
+      { id: "S02", timeRange: { startMs: 60000, endMs: 120000 }, shotPurpose: "Resolve the failure", spokenContent: null, spokenDelivery: null, recordingDirection: null, sound: "Soft confirmation tone", visualAction: "Show the stateful result.", composition: "Result fills frame", cameraBehavior: null, onScreenText: "State retained", evidenceRefs: ["source-1"], assetUsageIds: ["usage-2"], transition: null },
     ],
     primaryCallToAction: "Try the controlled workflow.",
     assetPlan: sharedPlan,
@@ -77,8 +78,8 @@ test("rejects gaps and unqualified one-off sources", () => {
     workingTitle: "Broken plan",
     targetDurationSeconds: 120,
     shots: [
-      { id: "S01", timeRange: { startMs: 0, endMs: 50000 }, shotPurpose: "Opening", spokenContent: null, sound: null, visualAction: "Open", composition: "Wide", cameraBehavior: null, onScreenText: null, evidenceRefs: [], assetUsageIds: ["usage-1"], transition: null },
-      { id: "S02", timeRange: { startMs: 60000, endMs: 120000 }, shotPurpose: "Ending", spokenContent: null, sound: null, visualAction: "Close", composition: "Wide", cameraBehavior: null, onScreenText: null, evidenceRefs: [], assetUsageIds: [], transition: null },
+      { id: "S01", timeRange: { startMs: 0, endMs: 50000 }, shotPurpose: "Opening", spokenContent: null, spokenDelivery: null, recordingDirection: null, sound: null, visualAction: "Open", composition: "Wide", cameraBehavior: null, onScreenText: null, evidenceRefs: [], assetUsageIds: ["usage-1"], transition: null },
+      { id: "S02", timeRange: { startMs: 60000, endMs: 120000 }, shotPurpose: "Ending", spokenContent: null, spokenDelivery: null, recordingDirection: null, sound: null, visualAction: "Close", composition: "Wide", cameraBehavior: null, onScreenText: null, evidenceRefs: [], assetUsageIds: [], transition: null },
     ],
     primaryCallToAction: null,
     assetPlan: {

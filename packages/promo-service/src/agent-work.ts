@@ -119,6 +119,6 @@ function toPolicy(id: GuidanceId): GuidancePolicy {
     case "product-voiceover-campaign":
       return { id, overview: "将产品能力转化为可证明、可拍摄的实测故事，并明确口播与画面证据如何协作。", loadWhen: "视频创意、口播主稿、截图证据链与素材缺口规划。" };
     case "promo-deliverable-exemplars":
-      return { id, overview: "读取经验证的分镜、口播、执行与素材交付样本，锚定制品之间的交接关系与验收粒度。", loadWhen: "视频创意路线、分镜主稿与素材需求规划；不可把其中的具体案例事实泛化。" };
+      return { id, overview: "读取完整视频前期交付模板契约及其结构卡；固定制品章节、字段粒度、追踪关系和验收，不泛化具体案例事实。", loadWhen: "视频创意路线、分镜主稿与前期素材执行包；先读完整模板，再处理单项结构卡。" };
   }
 }

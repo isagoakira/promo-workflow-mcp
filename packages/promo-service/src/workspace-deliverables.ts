@@ -82,10 +82,14 @@ function placementFor(kind: ArtifactKind): { node: string; name: string } | null
     case "creative_route_selection": return { node: "03-creative-outline", name: "selected-route" };
     case "creative_outline_draft": return { node: "03-creative-outline", name: "outline-draft" };
     case "creative_outline": return { node: "03-creative-outline", name: "locked-outline" };
+    case "outline_script": return { node: "03-creative-outline", name: "outline-script" };
     case "content_master_draft": return { node: "04-master", name: "master-draft" };
     case "master_review": return { node: "04-master", name: "master-review" };
     case "content_master": return { node: "04-master", name: "locked-master" };
+    case "spoken_script": return { node: "04-master", name: "spoken-script" };
+    case "recording_execution": return { node: "04-master", name: "recording-execution" };
     case "requirement_set": return { node: "05-requirements", name: "material-requirements" };
+    case "preproduction_material_plan": return { node: "05-requirements", name: "preproduction-material-plan" };
     case "production_plan": return { node: "06-production", name: "production-plan" };
     case "production_checkpoint": return { node: "06-production", name: "production-checkpoint" };
     case "production_handoff": return { node: "06-production", name: "backend-handoff" };

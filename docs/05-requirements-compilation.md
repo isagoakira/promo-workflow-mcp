@@ -56,6 +56,10 @@ Article requirements do not contain subtitle cues.
 
 ## Output
 
+For video, Node 5 produces one **pre-production material plan**: `preproduction-material-plan.json`. It is the single source of truth for all material-side work before production. It groups every requirement by high-reuse source capture and records the locked CAM/VO boundary, environment and continuity checks, continuous capture path, required visible states, edit handles, backup strategy, source fragments, capture order, acceptance and downgrade boundary.
+
+The plan does not allocate people or tools. A real proof state that cannot be captured is not allowed to silently degrade into B-roll or graphics; it returns to Node 4 to remove or revise the claim.
+
 The durable requirement set contains:
 
 - the minimum material requirements;

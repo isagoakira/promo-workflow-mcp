@@ -51,11 +51,12 @@ const CATALOG: Record<GuidanceId, GuidanceGuide> = {
     title: "Promo Deliverable Exemplars",
     content: PROMO_GUIDANCE_DOCUMENTS.deliverableExemplarsGuide,
     resources: [
+      { id: "video-delivery-contract", title: "视频前期交付模板契约", content: PROMO_GUIDANCE_DOCUMENTS.videoDeliveryContract },
+      { id: "outline-script", title: "大纲脚本样本", content: PROMO_GUIDANCE_DOCUMENTS.exemplarOutlineScript },
       { id: "storyboard", title: "分镜稿样本", content: PROMO_GUIDANCE_DOCUMENTS.exemplarStoryboard },
       { id: "recording-execution", title: "口播录制执行稿样本", content: PROMO_GUIDANCE_DOCUMENTS.exemplarRecordingExecution },
       { id: "spoken-lines", title: "口播台词稿样本", content: PROMO_GUIDANCE_DOCUMENTS.exemplarSpokenLines },
-      { id: "minimal-materials", title: "最小化素材清单样本", content: PROMO_GUIDANCE_DOCUMENTS.exemplarMinimalMaterials },
-      { id: "remaining-materials", title: "剩余素材需求稿样本", content: PROMO_GUIDANCE_DOCUMENTS.exemplarRemainingMaterials },
+      { id: "preproduction-material-plan", title: "前期素材执行包样本", content: PROMO_GUIDANCE_DOCUMENTS.exemplarPreproductionMaterialPlan },
     ],
   },
 };
