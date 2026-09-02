@@ -200,7 +200,7 @@ export class WorkflowService {
       record.context = withArtifact(record.context, artifact, { topicMatchArtifactId: artifact.artifactId });
       record.summary = `已完成双向选材匹配：${topicMatch.candidates.length} 个候选题待确认。`;
     } else if (record.state === "TOPIC_LOCKED") {
-      const agentWork = await this.createBaselineBrief(record.context);
+      const agentWork = await this.createBaselineBrief(record.context, record.carrier);
       record.context = { ...record.context, agentWork };
       record.summary = "已生成基调对齐任务；等待 Agent 提交宣传核心和用户引导意图。";
     } else if (record.state === "BASELINE_LOCKED") {
@@ -268,6 +268,7 @@ export class WorkflowService {
           ...(usesVectCut ? ["After VectCut generates the draft, review it in the editor before lock_production; submit vectcutDraftAccepted and vectcutReviewNote only after that review."] : []),
         ],
         nextCommitKind: "update_production_units",
+        guidance: createGuidanceRequest(record.carrier === "article" ? ["appso-visual-proof"] : []),
       });
       record.context = withArtifact(record.context, artifact, {
         productionPlanArtifactId: artifact.artifactId,
@@ -287,7 +288,23 @@ export class WorkflowService {
       const results = this.productionResultsFor(record.context, plan.units, units);
       if (record.carrier === "article") {
         const output = await this.assembleArticle(record, units, results);
-        record.context = { ...record.context, ...output };
+        record.context = {
+          ...record.context,
+          ...output,
+          agentWork: createAgentWorkCapsule({
+            stage: "production",
+            inputs: { articleProductionArtifacts: output.articleProductionArtifacts, articleAssemblerReference: output.articleAssemblerReference },
+            constraints: [
+              "Review the local preview without changing the locked proposition, section purposes, evidence boundary, or accepted asset mapping.",
+              "Every visual must remain adjacent to its intended anchor and prove the nearby judgment rather than decorate it.",
+              "Check that human center, author stance, warm thread, and emotional movement remain readable after layout.",
+            ],
+            requestedOutput: { description: "A local article preview review before production lock.", fields: ["previewAccepted", "findings"] },
+            validationRules: ["Submit previewAccepted: true only through promo_commit(kind=lock_production).", "Return to the affected upstream artifact when a finding changes locked meaning or evidence."],
+            nextCommitKind: "lock_production",
+            guidance: createGuidanceRequest(["appso-preview-review"]),
+          }),
+        };
         const handoff = await this.artifacts.write({
           kind: "production_handoff",
           content: { backend: "article_assembler", checkpointArtifactId: record.context.productionCheckpointArtifactId, outputArtifacts: record.context.articleProductionArtifacts, handedOffAt: new Date().toISOString() },
@@ -407,6 +424,7 @@ export class WorkflowService {
         });
       } else if (input.kind === "propose_baseline") {
         const proposal = readBaselineProposal(input.context.baselineProposal);
+        assertArticleEditorialIntent(record.carrier, proposal);
         assertDecisionsIncorporated(proposal.incorporatesDecisionIds, unresolvedDecisionIds(record.context));
         record.context = {
           ...record.context,
@@ -425,18 +443,20 @@ export class WorkflowService {
           baselineGrillCount: baselineGrillCount(record.context) + 1,
           unresolvedDecisionIds: [...unresolvedDecisionIds(record.context), decision.id],
           latestDecisionLedgerArtifactId: artifact.artifactId,
-          agentWork: createBaselineRevisionBrief(proposal, decision),
+          agentWork: createBaselineRevisionBrief(proposal, decision, record.carrier),
         });
         delete record.context.baselineProposal;
       } else if (input.kind === "lock_baseline") {
         assertNoUnresolvedDecisions(record.context);
         const proposal = readBaselineProposal(input.context.baselineProposal ?? record.context.baselineProposal);
+        assertArticleEditorialIntent(record.carrier, proposal);
         const artifact = await this.artifacts.write({
           kind: "baseline",
           content: {
             coreMessage: proposal.coreMessage,
             guidanceIntent: proposal.guidanceIntent,
             campaignIntent: proposal.campaignIntent,
+            ...(proposal.articleEditorialIntent ? { articleEditorialIntent: proposal.articleEditorialIntent } : {}),
             topicId: record.context.topicId,
             confirmedAt: new Date().toISOString(),
           },
@@ -709,7 +729,7 @@ export class WorkflowService {
     return { ...context, fetchedTopics: artifact.content };
   }
 
-  private async createBaselineBrief(context: Record<string, unknown>) {
+  private async createBaselineBrief(context: Record<string, unknown>, carrier: WorkflowCarrier) {
     const topicId = context.topicId;
     const topicMatchArtifactId = context.topicMatchArtifactId;
     if (typeof topicId !== "string" || typeof topicMatchArtifactId !== "string") {
@@ -722,6 +742,7 @@ export class WorkflowService {
     const topic = topicMatch.content.candidates.find((candidate) => isRecord(candidate) && candidate.topicId === topicId);
     if (!isRecord(topic)) throw new Error(`Locked topic ${topicId} is not in the topic-match artifact.`);
     return createBaselineBrief({
+      carrier,
       topic: topic as unknown as Parameters<typeof createBaselineBrief>[0]["topic"],
       productProfile: context.productProfile,
       selectedMaterials: context.selectedMaterials ?? [topic.url],
@@ -776,7 +797,7 @@ export class WorkflowService {
       },
       guidance: createGuidanceRequest(record.carrier === "video"
         ? ["promo-writing-supervision", "product-voiceover-campaign", "promo-deliverable-exemplars"]
-        : ["promo-writing-supervision"]),
+        : ["promo-writing-supervision", "appso-human-center-outline"]),
     });
   }
 
@@ -1647,6 +1668,12 @@ function readMasterReview(value: unknown, carrier: "video" | "article"): MasterR
   if (carrier === "video" && storyboardDirection === null) {
     throw new Error("Video masterReview requires storyboardDirection.");
   }
+  const articleEditorial = value.articleEditorial === null || value.articleEditorial === undefined
+    ? null
+    : readArticleEditorialReview(value.articleEditorial);
+  if (carrier === "article" && articleEditorial === null) {
+    throw new Error("Article masterReview requires articleEditorial.");
+  }
   return {
     passed: value.passed === true,
     evidenceBlockers: readStringArrayOrEmpty(value.evidenceBlockers, "masterReview.evidenceBlockers"),
@@ -1657,7 +1684,23 @@ function readMasterReview(value: unknown, carrier: "video" | "article"): MasterR
       findings: readStringArrayOrEmpty(writingStyle.findings, "masterReview.writingStyle.findings"),
     },
     storyboardDirection,
+    articleEditorial,
     assetEfficiencyFindings: readStringArrayOrEmpty(value.assetEfficiencyFindings, "masterReview.assetEfficiencyFindings"),
+  };
+}
+
+function readArticleEditorialReview(value: unknown): NonNullable<MasterReview["articleEditorial"]> {
+  if (!isRecord(value)
+    || value.skill !== "appso-product-editor"
+    || value.scope !== "human-center-evidence-voice"
+    || typeof value.passed !== "boolean") {
+    throw new Error("masterReview.articleEditorial must contain an explicit appso-product-editor review.");
+  }
+  return {
+    skill: "appso-product-editor",
+    scope: "human-center-evidence-voice",
+    passed: value.passed,
+    findings: readStringArrayOrEmpty(value.findings, "masterReview.articleEditorial.findings"),
   };
 }
 
@@ -1676,10 +1719,10 @@ function readStoryboardReview(value: unknown): NonNullable<MasterReview["storybo
   };
 }
 
-function createBaselineRevisionBrief(proposal: ReturnType<typeof readBaselineProposal>, decision: Record<string, unknown>) {
+function createBaselineRevisionBrief(proposal: ReturnType<typeof readBaselineProposal>, decision: Record<string, unknown>, carrier: WorkflowCarrier) {
   return createAgentWorkCapsule({
     stage: "baseline_alignment",
-    inputs: { priorProposal: proposal, latestDecision: decision },
+    inputs: { priorProposal: proposal, latestDecision: decision, carrier },
     constraints: [
       "Revise the campaign-intent proposal around the user's answer; do not merely append it as a note.",
       "Keep the reader scene concrete and preserve the locked evidence boundary.",
@@ -1687,6 +1730,9 @@ function createBaselineRevisionBrief(proposal: ReturnType<typeof readBaselinePro
     requestedOutput: { description: "A revised campaign-intent proposal that visibly incorporates the answered decision.", fields: ["baselineProposal"] },
     validationRules: ["Set incorporatesDecisionIds to the decision id in latestDecision.", "Submit through promo_commit(kind=propose_baseline)."],
     nextCommitKind: "propose_baseline",
+    guidance: createGuidanceRequest(carrier === "article"
+      ? ["promo-writing-supervision", "appso-article-contract"]
+      : ["promo-writing-supervision"]),
     decisionCard: {
       node: 2, label: "宣传意图修订", known: ["你刚完成一个场景选择。"],
       recommendation: "让这个选择改变表达主次，而不是只换一处措辞。", userDecision: null,
@@ -1694,6 +1740,12 @@ function createBaselineRevisionBrief(proposal: ReturnType<typeof readBaselinePro
     },
     deliverable: { name: "revised campaign intent", workspaceFile: "02-campaign-intent/campaign-intent.json", purpose: "反映用户答案的可复用宣传意图。" },
   });
+}
+
+function assertArticleEditorialIntent(carrier: WorkflowCarrier, proposal: ReturnType<typeof readBaselineProposal>): void {
+  if (carrier === "article" && !proposal.articleEditorialIntent) {
+    throw new Error("Article baseline requires articleEditorialIntent before it can be proposed or locked.");
+  }
 }
 
 function createMasterRevisionBrief(
@@ -1708,6 +1760,9 @@ function createMasterRevisionBrief(
     requestedOutput: { description: "A revised complete master and explicit review trace.", fields: ["masterDraft", "masterReview", "incorporatesDecisionIds"] },
     validationRules: ["Set incorporatesDecisionIds to the decision id in latestDecision.", "Submit through promo_commit(kind=submit_master_draft)."],
     nextCommitKind: "submit_master_draft",
+    guidance: createGuidanceRequest(creativeOutline.outline.carrier === "article"
+      ? ["promo-writing-supervision", "appso-manuscript-proof", "appso-visual-proof"]
+      : ["promo-writing-supervision", "promo-storyboard-supervision", "product-voiceover-campaign", "promo-deliverable-exemplars"]),
     decisionCard: {
       node: 4, label: "主稿修订", known: ["一个阻塞性场景选择已确认。"],
       recommendation: "让选择影响正文/分镜的段落推进与证据，而不是局部补丁。", userDecision: null,

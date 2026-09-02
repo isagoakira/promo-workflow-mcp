@@ -1,6 +1,7 @@
 import {
   STORY_ENGINE_SUGGESTIONS,
   type ArticleOutline,
+  type ArticleEditorialIntent,
   type ArticleOutlineSection,
   type CarrierOutline,
   type ContentBudget,
@@ -113,7 +114,7 @@ export function createCreativeOutlineBrief(input: CreateCreativeOutlineBriefInpu
     },
     guidance: createGuidanceRequest(input.budget.carrier === "video"
       ? ["promo-writing-supervision", "product-voiceover-campaign", "promo-deliverable-exemplars"]
-      : ["promo-writing-supervision"]),
+      : ["promo-writing-supervision", "appso-human-center-outline"]),
   });
 }
 
@@ -263,12 +264,25 @@ function readArticleOutline(value: Record<string, unknown>, budget: Extract<Cont
 
   return {
     carrier: "article",
+    editorialIntent: readArticleEditorialIntent(value.editorialIntent),
     openingDirection: requiredText(value.openingDirection, "outline.openingDirection"),
     sections,
     titleDirections: readTextArray(value.titleDirections, "outline.titleDirections"),
     unsupportedClaims: readTextArray(value.unsupportedClaims, "outline.unsupportedClaims"),
     ending: requiredText(value.ending, "outline.ending"),
     primaryCallToAction: nullableText(value.primaryCallToAction, "outline.primaryCallToAction"),
+  };
+}
+
+function readArticleEditorialIntent(value: unknown): ArticleEditorialIntent {
+  if (!isRecord(value)) throw new Error("outline.editorialIntent is required for article workflows.");
+  return {
+    readerDecision: requiredText(value.readerDecision, "outline.editorialIntent.readerDecision"),
+    humanCenter: requiredText(value.humanCenter, "outline.editorialIntent.humanCenter"),
+    authorStance: requiredText(value.authorStance, "outline.editorialIntent.authorStance"),
+    warmThread: requiredText(value.warmThread, "outline.editorialIntent.warmThread"),
+    emotionalArc: requiredText(value.emotionalArc, "outline.editorialIntent.emotionalArc"),
+    evidencePosture: requiredText(value.evidencePosture, "outline.editorialIntent.evidencePosture"),
   };
 }
 

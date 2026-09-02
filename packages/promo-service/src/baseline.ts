@@ -1,4 +1,4 @@
-import type { CampaignIntentCard, ScenarioGrillQuestion } from "@promo-workflow/contracts";
+import type { ArticleEditorialIntent, CampaignIntentCard, ScenarioGrillQuestion } from "@promo-workflow/contracts";
 import { createAgentWorkCapsule, createGuidanceRequest, type AgentWorkCapsule } from "./agent-work.js";
 import type { TopicCandidate } from "./selection/types.js";
 
@@ -6,11 +6,13 @@ export interface BaselineProposal {
   coreMessage: string;
   guidanceIntent: string;
   campaignIntent: CampaignIntentCard;
+  articleEditorialIntent?: ArticleEditorialIntent | undefined;
   pendingQuestion?: ScenarioGrillQuestion | undefined;
   incorporatesDecisionIds: readonly string[];
 }
 
 export interface CreateBaselineBriefInput {
+  carrier: "video" | "article";
   topic: TopicCandidate;
   productProfile: unknown;
   selectedMaterials: unknown;
@@ -22,6 +24,7 @@ export function createBaselineBrief(input: CreateBaselineBriefInput): AgentWorkC
     inputs: {
       topic: input.topic,
       selectedMaterials: input.selectedMaterials,
+      carrier: input.carrier,
       productProfile: input.productProfile,
     },
     constraints: [
@@ -29,18 +32,24 @@ export function createBaselineBrief(input: CreateBaselineBriefInput): AgentWorkC
       "Start from one concrete reader scene, then state the immediate gain before the long-term value.",
       "Propose one remembered idea, one user-facing guidance intent, and one campaign-intent card.",
       "Ask at most one consequential unresolved question at a time.",
+      ...(input.carrier === "article" ? ["Lock an articleEditorialIntent with readerDecision, humanCenter, authorStance, warmThread, emotionalArc, and evidencePosture. Every field must be source-supported or honestly framed as an editorial choice, never a fabricated memory."] : []),
     ],
     requestedOutput: {
       description: "A campaign-intent proposal rooted in a reader scene, with one optional high-impact scenario Grill question.",
-      fields: ["coreMessage", "guidanceIntent", "campaignIntent", "pendingQuestion", "incorporatesDecisionIds"],
+      fields: input.carrier === "article"
+        ? ["coreMessage", "guidanceIntent", "campaignIntent", "articleEditorialIntent", "pendingQuestion", "incorporatesDecisionIds"]
+        : ["coreMessage", "guidanceIntent", "campaignIntent", "pendingQuestion", "incorporatesDecisionIds"],
     },
     validationRules: [
       "coreMessage, guidanceIntent, and every campaignIntent field must be non-empty before lock.",
+      ...(input.carrier === "article" ? ["articleEditorialIntent must contain all six editorial fields before lock."] : []),
       "A Grill question must name a scene, a tension, 2-3 options, one recommendation, and the deliverables it will change.",
       "Submit a proposal through promo_commit(kind=propose_baseline).",
     ],
     nextCommitKind: "propose_baseline",
-    guidance: createGuidanceRequest(["promo-writing-supervision"]),
+    guidance: createGuidanceRequest(input.carrier === "article"
+      ? ["promo-writing-supervision", "appso-article-contract"]
+      : ["promo-writing-supervision"]),
     decisionCard: {
       node: 2,
       label: "宣传核心与用户引导",
@@ -64,8 +73,21 @@ export function readBaselineProposal(value: unknown): BaselineProposal {
     coreMessage: requiredText(value.coreMessage, "baselineProposal.coreMessage"),
     guidanceIntent: requiredText(value.guidanceIntent, "baselineProposal.guidanceIntent"),
     campaignIntent: readCampaignIntent(value.campaignIntent),
+    ...(value.articleEditorialIntent === undefined ? {} : { articleEditorialIntent: readArticleEditorialIntent(value.articleEditorialIntent) }),
     ...(value.pendingQuestion === undefined ? {} : { pendingQuestion: readScenarioQuestion(value.pendingQuestion) }),
     incorporatesDecisionIds: readTextArray(value.incorporatesDecisionIds, "baselineProposal.incorporatesDecisionIds"),
+  };
+}
+
+function readArticleEditorialIntent(value: unknown): ArticleEditorialIntent {
+  if (!isRecord(value)) throw new Error("baselineProposal.articleEditorialIntent is required.");
+  return {
+    readerDecision: requiredText(value.readerDecision, "articleEditorialIntent.readerDecision"),
+    humanCenter: requiredText(value.humanCenter, "articleEditorialIntent.humanCenter"),
+    authorStance: requiredText(value.authorStance, "articleEditorialIntent.authorStance"),
+    warmThread: requiredText(value.warmThread, "articleEditorialIntent.warmThread"),
+    emotionalArc: requiredText(value.emotionalArc, "articleEditorialIntent.emotionalArc"),
+    evidencePosture: requiredText(value.evidencePosture, "articleEditorialIntent.evidencePosture"),
   };
 }
 

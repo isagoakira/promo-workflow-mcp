@@ -109,7 +109,9 @@ export function createReleasePackagingBrief(input: CreateReleasePackagingBriefIn
       "One final selection is committed through promo_commit(kind=select_release_package).",
     ],
     nextCommitKind: "submit_release_package",
-    guidance: createGuidanceRequest(["promo-writing-supervision"]),
+    guidance: createGuidanceRequest(input.production.carrier === "article"
+      ? ["promo-writing-supervision", "appso-release-packaging"]
+      : ["promo-writing-supervision"]),
   });
 }
 

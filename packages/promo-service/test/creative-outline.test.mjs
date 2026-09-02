@@ -137,6 +137,7 @@ test("requires article section purposes to be distinct and obeys Grill caps", ()
     macroStyleReview,
     outline: {
       carrier: "article",
+      editorialIntent: editorialIntent(),
       openingDirection: "Begin at the failed rerun.",
       sections,
       titleDirections: ["When an agent rerun stops being a gamble"],
@@ -194,6 +195,17 @@ function articleSection(id, content) {
     authorJudgment: null,
     transition: null,
     visualAsset: null,
+  };
+}
+
+function editorialIntent() {
+  return {
+    readerDecision: "Decide whether a controlled rerun is worth adopting.",
+    humanCenter: "The small anxiety of losing context after an interrupted run.",
+    authorStance: "A practical builder who values recoverability over spectacle.",
+    warmThread: "The moment a rerun can explain itself again.",
+    emotionalArc: "friction to relief to measured confidence",
+    evidencePosture: "Use observed local workflow behavior and label untested claims.",
   };
 }
 

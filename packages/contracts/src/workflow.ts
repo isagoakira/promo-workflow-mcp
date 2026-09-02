@@ -28,6 +28,8 @@ export interface PositioningBaseline {
   coreMessage: string;
   guidanceIntent: string;
   campaignIntent: CampaignIntentCard;
+  /** Present only for article workflows; carries the editorial thread across nodes. */
+  articleEditorialIntent?: ArticleEditorialIntent;
   confirmedAt: string;
 }
 
@@ -43,6 +45,16 @@ export interface CampaignIntentCard {
   promotionalTemperature: string;
   primaryCallToAction: string;
   avoid: readonly string[];
+}
+
+/** A factual editorial contract, not a license to invent lived experience. */
+export interface ArticleEditorialIntent {
+  readerDecision: string;
+  humanCenter: string;
+  authorStance: string;
+  warmThread: string;
+  emotionalArc: string;
+  evidencePosture: string;
 }
 
 export interface ScenarioGrillOption {
@@ -252,6 +264,8 @@ export interface VideoOutline {
 
 export interface ArticleOutline {
   carrier: "article";
+  /** Refined from the locked baseline and carried into the manuscript master. */
+  editorialIntent: ArticleEditorialIntent;
   openingDirection: string;
   sections: readonly ArticleOutlineSection[];
   titleDirections: readonly string[];
@@ -429,6 +443,12 @@ export interface MasterReview {
   storyboardDirection: {
     skill: "storyboard-direction";
     scope: "shot-continuity-coverage-assets";
+    passed: boolean;
+    findings: readonly string[];
+  } | null;
+  articleEditorial: {
+    skill: "appso-product-editor";
+    scope: "human-center-evidence-voice";
     passed: boolean;
     findings: readonly string[];
   } | null;

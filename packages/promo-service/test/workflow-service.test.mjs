@@ -99,9 +99,9 @@ test("workflow advances with optimistic revisions and idempotency", async () => 
   });
   assert.equal(baselineStarted.state, "ALIGNING_BASELINE");
   assert.equal(baselineStarted.agentWork.stage, "baseline_alignment");
-  assert.deepEqual(baselineStarted.agentWork.guidance.policies.map((policy) => policy.id), ["promo-workflow-orchestration", "promo-writing-supervision"]);
+  assert.deepEqual(baselineStarted.agentWork.guidance.policies.map((policy) => policy.id), ["promo-workflow-orchestration", "promo-writing-supervision", "appso-article-contract"]);
   const guidance = await service.guidance(baselineStarted.workflowId);
-  assert.deepEqual(guidance.guides.map((guide) => guide.id), ["promo-workflow-orchestration", "promo-writing-supervision"]);
+  assert.deepEqual(guidance.guides.map((guide) => guide.id), ["promo-workflow-orchestration", "promo-writing-supervision", "appso-article-contract"]);
   assert.match(guidance.guides[1].content, /Geek Product Promo Writing/);
   assert.equal(guidance.guides[1].resources.length, 5);
   assert.match(guidance.guides[1].resources[1].content, /中文句子级去 AI 味规则/);
@@ -281,19 +281,25 @@ test("article workflow assembles a local preview before production lock and rele
   const candidates = await service.run({ workflowId: created.workflowId, expectedRevision: matching.revision, idempotencyKey: "article-match" });
   const selected = await service.commit({ workflowId: created.workflowId, expectedRevision: candidates.revision, kind: "select_topic", summary: "Select", context: { topicId: candidates.topicMatch.candidates[0].topicId, selectedMaterials: ["https://example.com/article-topic"] }, idempotencyKey: "article-select" });
   const baseline = await service.run({ workflowId: created.workflowId, expectedRevision: selected.revision, idempotencyKey: "article-baseline-brief" });
+  assert.equal(baseline.agentWork.guidance.policies.some((policy) => policy.id === "appso-article-contract"), true);
   const proposed = await service.commit({ workflowId: created.workflowId, expectedRevision: baseline.revision, kind: "propose_baseline", summary: "Baseline", context: { baselineProposal: validBaselineProposal("Local state preserves repeatable work.", "Show one useful rerun.") }, idempotencyKey: "article-baseline" });
   const lockedBaseline = await service.commit({ workflowId: created.workflowId, expectedRevision: proposed.revision, kind: "lock_baseline", summary: "Lock baseline", context: {}, idempotencyKey: "article-lock-baseline" });
   const outlining = await service.run({ workflowId: created.workflowId, expectedRevision: lockedBaseline.revision, idempotencyKey: "article-outline-brief" });
+  assert.equal(outlining.agentWork.guidance.policies.some((policy) => policy.id === "appso-human-center-outline"), true);
   const routes = await service.commit({ workflowId: created.workflowId, expectedRevision: outlining.revision, kind: "propose_creative_routes", summary: "Routes", context: { creativeRoutes: validCreativeRoutes() }, idempotencyKey: "article-routes" });
   const route = await service.commit({ workflowId: created.workflowId, expectedRevision: routes.revision, kind: "select_creative_route", summary: "Choose route", context: { routeId: "route-1" }, idempotencyKey: "article-route" });
+  assert.equal(route.agentWork.guidance.policies.some((policy) => policy.id === "appso-human-center-outline"), true);
   const draft = await service.commit({ workflowId: created.workflowId, expectedRevision: route.revision, kind: "submit_outline_draft", summary: "Outline", context: { outlineDraft: validArticleOutlineDraft() }, idempotencyKey: "article-outline" });
   const lockedOutline = await service.commit({ workflowId: created.workflowId, expectedRevision: draft.revision, kind: "lock_outline", summary: "Lock outline", context: {}, idempotencyKey: "article-lock-outline" });
   const mastering = await service.run({ workflowId: created.workflowId, expectedRevision: lockedOutline.revision, idempotencyKey: "article-master-brief" });
+  assert.equal(mastering.agentWork.guidance.policies.some((policy) => policy.id === "appso-manuscript-proof"), true);
+  assert.equal(mastering.agentWork.guidance.policies.some((policy) => policy.id === "appso-visual-proof"), true);
   const master = await service.commit({ workflowId: created.workflowId, expectedRevision: mastering.revision, kind: "submit_master_draft", summary: "Master", context: { masterDraft: validArticleMasterDraft(), masterReview: validMasterReview("article") }, idempotencyKey: "article-master" });
   assert.equal(master.artifactRefs.some((artifact) => artifact.kind === "master_review"), true);
   const lockedMaster = await service.commit({ workflowId: created.workflowId, expectedRevision: master.revision, kind: "lock_master", summary: "Lock master", context: {}, idempotencyKey: "article-lock-master" });
   const requirements = await service.run({ workflowId: created.workflowId, expectedRevision: lockedMaster.revision, idempotencyKey: "article-compile" });
   const producing = await service.run({ workflowId: created.workflowId, expectedRevision: requirements.revision, idempotencyKey: "article-produce-brief" });
+  assert.equal(producing.agentWork.guidance.policies.some((policy) => policy.id === "appso-visual-proof"), true);
   const updated = await service.commit({
     workflowId: created.workflowId, expectedRevision: producing.revision, kind: "update_production_units", summary: "Accept material",
     context: { units: producing.agentWork.inputs.requirements.units.map((unit) => ({ ...unit, status: "accepted" })), productionResults: producing.agentWork.inputs.requirements.units.map((unit, index) => productionResult(unit.id, `artifact_article_${index + 1}`)) },
@@ -304,8 +310,10 @@ test("article workflow assembles a local preview before production lock and rele
   assert.equal(assembled.artifactRefs.some((artifact) => artifact.kind === "article_document"), true);
   assert.equal(assembled.artifactRefs.some((artifact) => artifact.kind === "preview"), true);
   assert.equal(assembled.artifactRefs.some((artifact) => artifact.kind === "production_handoff"), true);
+  assert.equal(assembled.agentWork.guidance.policies.some((policy) => policy.id === "appso-preview-review"), true);
   const lockedProduction = await service.commit({ workflowId: created.workflowId, expectedRevision: assembled.revision, kind: "lock_production", summary: "Approve preview", context: { previewAccepted: true }, idempotencyKey: "article-lock-production" });
   const packaging = await service.run({ workflowId: created.workflowId, expectedRevision: lockedProduction.revision, idempotencyKey: "article-package-brief" });
+  assert.equal(packaging.agentWork.guidance.policies.some((policy) => policy.id === "appso-release-packaging"), true);
   const evidence = packaging.agentWork.inputs.allowedEvidenceArtifactIds;
   const packaged = await service.commit({ workflowId: created.workflowId, expectedRevision: packaging.revision, kind: "submit_release_package", summary: "Package", context: { releasePackageDraft: validArticleReleaseDraft(evidence) }, idempotencyKey: "article-package" });
   const ready = await service.commit({ workflowId: created.workflowId, expectedRevision: packaged.revision, kind: "select_release_package", summary: "Select package", context: { titleId: "title-1", coverId: "cover-1" }, idempotencyKey: "article-select-package" });
@@ -333,13 +341,14 @@ function validArticleOutlineDraft() {
     selectedRouteId: "route-1", incorporatesDecisionIds: [], pendingQuestion: null,
     creativeSpine: { routeId: "route-1", creativePremise: "Follow one rerun until it becomes reliable.", storyEngine: "before-after-workflow", narrativeAnchor: "The missing state.", openingMove: "Start with the interruption.", progression: "Problem, mechanism, evidence, judgment.", proofPlan: "Use one observed rerun.", endingMove: "Invite a repeatable next action.", macroStyle: { speakerPosition: "builder", readerRelationship: "peer", promotionalTemperature: "measured", technicalDepth: "practical", emotionalArc: "friction to confidence", endingAltitude: "next action" } },
     macroStyleReview: { skill: "geek-product-promo-writing", scope: "macro", passed: true, findings: [] },
-    outline: { carrier: "article", openingDirection: "Start at the rerun.", sections: ["scene", "mechanism", "evidence", "judgment"].map((id) => ({ id, sectionPurpose: id, sceneOrAction: `${id} scene`, content: `${id} content`, readerShift: null, evidence: [], authorJudgment: null, avoid: null, transition: null, visualAsset: null })), titleDirections: ["A local rerun that keeps its state"], unsupportedClaims: [], ending: "Try one controlled rerun.", primaryCallToAction: "Start from one workflow." },
+    outline: { carrier: "article", editorialIntent: validArticleEditorialIntent(), openingDirection: "Start at the rerun.", sections: ["scene", "mechanism", "evidence", "judgment"].map((id) => ({ id, sectionPurpose: id, sceneOrAction: `${id} scene`, content: `${id} content`, readerShift: null, evidence: [], authorJudgment: null, avoid: null, transition: null, visualAsset: null })), titleDirections: ["A local rerun that keeps its state"], unsupportedClaims: [], ending: "Try one controlled rerun.", primaryCallToAction: "Start from one workflow." },
   };
 }
 
 function validBaselineProposal(coreMessage, guidanceIntent, pendingQuestion, incorporatesDecisionIds = []) {
   return {
     coreMessage, guidanceIntent, incorporatesDecisionIds,
+    articleEditorialIntent: validArticleEditorialIntent(),
     campaignIntent: {
       audienceMoment: "A builder opens a rerun and finds the project context gone.", immediateBenefit: "Continue from the last confirmed constraint.", longTermBenefit: "Reuse verified project decisions across later work.", beliefToChange: "A successful run is not enough if the next run starts from zero.", proofToShow: "One query-save-verify loop.", evidenceBoundary: "Only show recorded product behavior.", narratorPosition: "A peer builder sharing a practical test.", promotionalTemperature: "Measured and specific.", primaryCallToAction: "Try one small rerun.", avoid: ["feature inventory"],
     },
@@ -374,6 +383,7 @@ function validMasterReview(carrier) {
     passed: true, evidenceBlockers: [], assetEfficiencyFindings: [],
     writingStyle: { skill: "geek-product-promo-writing", scope: "macro-meso-micro", passed: true, findings: ["Scene leads before mechanism."] },
     storyboardDirection: carrier === "video" ? { skill: "storyboard-direction", scope: "shot-continuity-coverage-assets", passed: true, findings: ["Continuity checked."] } : null,
+    articleEditorial: carrier === "article" ? { skill: "appso-product-editor", scope: "human-center-evidence-voice", passed: true, findings: ["The human concern remains connected to evidence."] } : null,
   };
 }
 
@@ -384,6 +394,17 @@ function validArticleMasterDraft() {
     carrier: "article", title: "把一次演示变成可复现的工作流", alternativeTitles: ["让重跑保留状态", "本地状态如何减少猜测"], bodyMarkdown: body,
     assetPlacements: [{ id: "P01", anchor, assetUsageId: "usage-article", editorialPurpose: "Show the recorded product result." }], primaryCallToAction: "从一条可复现的流程开始。",
     assetPlan: { sourceAssets: [{ id: "source-screen", purpose: "Show the product result", evidenceRole: "actual product evidence", productionIntent: "product screen recording", captureProtocol: { captureMode: "capture", continuousPath: "Open the product, complete the test, hold the result.", requiredVisibleStates: ["product result"], editingHandles: "Hold the result for 3 seconds.", backupStrategy: "Record a clean backup." }, constraints: ["actual product evidence"], preferredRoute: "human", reusableFragments: [{ id: "fragment-result", sourceAssetId: "source-screen", extraction: "result", transformation: null }], usageIds: ["usage-article"], essentialOneOffReason: "The final proof frame is unique." }], usages: [{ id: "usage-article", carrier: "article", targetId: "P01", purpose: "Show result", sourceAssetId: "source-screen", fragmentId: "fragment-result" }], uniqueAcquisitionCount: 1, plannedUsageCount: 1, oneOffAssetIds: ["source-screen"] },
+  };
+}
+
+function validArticleEditorialIntent() {
+  return {
+    readerDecision: "Decide whether to adopt a recoverable local rerun.",
+    humanCenter: "The quiet frustration of a workflow that loses its place.",
+    authorStance: "A builder who values explainable recovery.",
+    warmThread: "A rerun that can remember why it stopped.",
+    emotionalArc: "friction to relief to measured confidence",
+    evidencePosture: "Use the observed local path and label untested claims.",
   };
 }
 

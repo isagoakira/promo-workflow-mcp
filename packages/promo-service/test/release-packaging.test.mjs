@@ -57,7 +57,7 @@ test("creates an evidence-bounded release-packaging capsule", () => {
   assert.equal(capsule.stage, "release_packaging");
   assert.equal(capsule.nextCommitKind, "submit_release_package");
   assert.equal(capsule.guidance.router, "promo_guidance");
-  assert.deepEqual(capsule.guidance.policies.map((policy) => policy.id), ["promo-workflow-orchestration", "promo-writing-supervision"]);
+  assert.deepEqual(capsule.guidance.policies.map((policy) => policy.id), ["promo-workflow-orchestration", "promo-writing-supervision", "appso-release-packaging"]);
   assert.deepEqual(capsule.inputs.allowedEvidenceArtifactIds, [
     "article-document-3", "article-preview-3", "article-assets-3", "topic-card-1",
   ]);
