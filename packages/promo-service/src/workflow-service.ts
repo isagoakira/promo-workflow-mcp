@@ -311,7 +311,9 @@ export class WorkflowService {
             parentArtifactIds: artifactIdsFor(record.context), revision: record.revision + 1,
           });
           record.context = withArtifact(record.context, handoff, { cutWorkbenchResult: bridgeResult, productionHandoffArtifactId: handoff.artifactId });
-          record.summary = "Cut Workbench 已返回已验证的视频成品引用；等待最终锁定。";
+          record.summary = bridgeResult.finalGate.passed
+            ? "Cut Workbench 已返回已验证的视频成品引用；等待最终锁定。"
+            : "Cut Workbench 项目已建立或同步；请在其生产工作流完成终剪、字幕、验证和交付门禁后，再次运行 promo_run。";
         }
       }
     } else if (record.state === "PRODUCTION_LOCKED") {
@@ -1132,7 +1134,10 @@ function pendingActionForRecord(record: WorkflowRecord): PendingAction | null {
       return action("review_vectcut_draft", "commit", "在 VectCut/剪映中审核可编辑草稿。需要改动时以 update_production_units 回退相关单元并重跑；确认后以 lock_production 提交 vectcutDraftAccepted: true 和 vectcutReviewNote。草稿不是最终导出视频。");
     }
     if (isRecord(record.context.cutWorkbenchResult) && record.context.cutWorkbenchResult.kind === "production_result") {
-      return action("lock_video_production", "commit", "Cut Workbench 已返回验证结果；以 lock_production 锁定该项目版本和最终字幕。 ");
+      if (isRecord(record.context.cutWorkbenchResult.finalGate) && record.context.cutWorkbenchResult.finalGate.passed === true) {
+        return action("lock_video_production", "commit", "Cut Workbench 已返回验证结果；以 lock_production 锁定该项目版本和最终字幕。 ");
+      }
+      return action("continue_cut_workbench_production", "agent_work", "在 Cut Workbench 完成九阶段生产、终剪字幕与交付验证；完成后再次调用 promo_run 同步最终项目版本。");
     }
   }
   return pendingActionFor(record.state);

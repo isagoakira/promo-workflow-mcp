@@ -3,7 +3,20 @@
     "promo_workflow": {
       "command": "node",
       "args": ["./packages/promo-mcp/dist/index.js"],
-      "cwd": "."
+      "cwd": ".",
+      "env": {
+        "PROMO_WORKFLOW_DATA_DIR": "D:/Files/工作/智悦/太忆空间素材/promo-workflow-runtime",
+        "PROMO_CUT_WORKBENCH_ROOT": "D:/Files/工作/智悦/太忆空间素材/cut-workbench-runtime",
+        "PROMO_CUT_WORKBENCH_SOURCE_DIR": "D:/Files/工作/智悦/太忆空间素材/cut-workbench"
+      }
+    },
+    "cut_workbench": {
+      "command": "python",
+      "args": ["-m", "cut_workbench.cli", "--root", "D:/Files/工作/智悦/太忆空间素材/cut-workbench-runtime", "mcp"],
+      "cwd": "D:/Files/工作/智悦/太忆空间素材/cut-workbench",
+      "env": {
+        "PYTHONPATH": "src"
+      }
     }
   }
 }

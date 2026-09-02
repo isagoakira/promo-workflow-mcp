@@ -32,6 +32,20 @@ npm start
 
 工具调用使用 `expectedRevision` 与 `idempotencyKey`：前者避免并发覆盖，后者保证 Agent 重试不会重复推进流程。
 
+### Cut Workbench 执行接口
+
+视频流程默认使用 Cut Workbench。根目录 [`.mcp.json`](.mcp.json) 已同时配置 Promo 与 Workbench：前者在制作节点调用后者的公开 stdio MCP 接口，后者仍是剪辑工程、九阶段生产、验证与交付的唯一真相源。
+
+当前本机配置把 Workbench 源码设为 `D:/Files/工作/智悦/太忆空间素材/cut-workbench`，运行状态写入同级的 `cut-workbench-runtime/`。启动 Promo 前，请先确认 Workbench 可运行：
+
+```powershell
+Set-Location D:/Files/工作/智悦/太忆空间素材/cut-workbench
+$env:PYTHONPATH = "src"
+python -m cut_workbench.cli --root D:/Files/工作/智悦/太忆空间素材/cut-workbench-runtime list-tools
+```
+
+Promo 在所有制作单元 accepted 后创建或复用一个稳定的 Workbench 工程，并初始化其九阶段生产工作流。此时 Agent 应继续通过 `cut_workbench` MCP 执行工程编辑、阶段验收、终剪、最终 SRT 与交付验证；完成后再次调用 `promo_run` 同步项目 revision。只有 Workbench 的 `09-final` 已批准、工程通过 `delivered`/`handed_off` 门禁、且存在终稿视频和最终字幕时，Promo 才允许 `lock_production`。
+
 ### 第一节点：最小选材配置
 
 创建流程时，在 `promo_commit(kind=create_workflow)` 的 `context` 中提供产品卡与来源池；随后调用一次 `promo_run`。服务返回一个 `fetchBrief`，由当前 Agent 使用自己的 Web Fetch 或浏览器能力读取来源。来源可标为 RSS/Atom（推荐）或 HTML，标签仅用于指导抓取策略。
