@@ -68,7 +68,7 @@ export function createMasterDevelopmentBrief(input: CreateMasterDevelopmentBrief
     ],
     nextCommitKind: "submit_master_draft",
     guidance: createGuidanceRequest(carrier === "video"
-      ? ["promo-writing-supervision", "promo-storyboard-supervision"]
+      ? ["promo-writing-supervision", "promo-storyboard-supervision", "product-voiceover-campaign", "promo-deliverable-exemplars"]
       : ["promo-writing-supervision"]),
   });
 }

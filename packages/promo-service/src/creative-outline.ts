@@ -110,7 +110,9 @@ export function createCreativeOutlineBrief(input: CreateCreativeOutlineBriefInpu
       workspaceFile: "03-creative-outline/locked-outline.json",
       purpose: "后续扩写、分镜和跨载体改编的结构母版。",
     },
-    guidance: createGuidanceRequest(["promo-writing-supervision"]),
+    guidance: createGuidanceRequest(input.budget.carrier === "video"
+      ? ["promo-writing-supervision", "product-voiceover-campaign", "promo-deliverable-exemplars"]
+      : ["promo-writing-supervision"]),
   });
 }
 

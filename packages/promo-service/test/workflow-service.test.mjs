@@ -102,7 +102,9 @@ test("workflow advances with optimistic revisions and idempotency", async () => 
   assert.deepEqual(baselineStarted.agentWork.guidance.policies.map((policy) => policy.id), ["promo-workflow-orchestration", "promo-writing-supervision"]);
   const guidance = await service.guidance(baselineStarted.workflowId);
   assert.deepEqual(guidance.guides.map((guide) => guide.id), ["promo-workflow-orchestration", "promo-writing-supervision"]);
-  assert.match(guidance.guides[1].instructions.join("\n"), /feature-list sequence/);
+  assert.match(guidance.guides[1].content, /Geek Product Promo Writing/);
+  assert.equal(guidance.guides[1].resources.length, 5);
+  assert.match(guidance.guides[1].resources[1].content, /中文句子级去 AI 味规则/);
   await assert.rejects(
     service.guidance(baselineStarted.workflowId, ["promo-storyboard-supervision"]),
     /不允许加载指导/,

@@ -45,6 +45,8 @@ export const GUIDANCE_IDS = [
   "promo-workflow-orchestration",
   "promo-writing-supervision",
   "promo-storyboard-supervision",
+  "product-voiceover-campaign",
+  "promo-deliverable-exemplars",
 ] as const;
 
 export type GuidanceId = (typeof GUIDANCE_IDS)[number];
@@ -114,5 +116,9 @@ function toPolicy(id: GuidanceId): GuidancePolicy {
       return { id, overview: "以具体任务和可验证证据组织技术产品表达，避免功能说明书式宣传。", loadWhen: "宣传意图、创意大纲、文章/口播主稿、标题与简介。" };
     case "promo-storyboard-supervision":
       return { id, overview: "检查分镜的时序、视听协作、连续性、覆盖度与素材复用。", loadWhen: "视频主稿、分镜修订与视频审校。" };
+    case "product-voiceover-campaign":
+      return { id, overview: "将产品能力转化为可证明、可拍摄的实测故事，并明确口播与画面证据如何协作。", loadWhen: "视频创意、口播主稿、截图证据链与素材缺口规划。" };
+    case "promo-deliverable-exemplars":
+      return { id, overview: "读取经验证的分镜、口播、执行与素材交付样本，锚定制品之间的交接关系与验收粒度。", loadWhen: "视频创意路线、分镜主稿与素材需求规划；不可把其中的具体案例事实泛化。" };
   }
 }

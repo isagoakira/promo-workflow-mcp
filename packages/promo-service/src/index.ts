@@ -54,7 +54,7 @@ export type {
   GuidanceId,
   GuidancePolicy,
 } from "./agent-work.js";
-export type { GuidanceGuide } from "./guidance-catalog.js";
+export type { GuidanceGuide, GuidanceResource } from "./guidance-catalog.js";
 export type {
   AcceptedArticleAssetResult,
   ArticleAssemblerOutput,

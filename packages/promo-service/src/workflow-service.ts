@@ -734,7 +734,9 @@ export class WorkflowService {
         workspaceFile: "03-creative-outline/creative-routes.json",
         purpose: "用户已比较过的创意方向及其选择依据。",
       },
-      guidance: createGuidanceRequest(["promo-writing-supervision"]),
+      guidance: createGuidanceRequest(record.carrier === "video"
+        ? ["promo-writing-supervision", "product-voiceover-campaign", "promo-deliverable-exemplars"]
+        : ["promo-writing-supervision"]),
     });
   }
 

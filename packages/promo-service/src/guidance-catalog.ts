@@ -1,46 +1,61 @@
 import type { GuidanceId } from "./agent-work.js";
+import { PROMO_GUIDANCE_DOCUMENTS } from "./guidance-content.js";
+
+export interface GuidanceResource {
+  id: string;
+  title: string;
+  content: string;
+}
 
 export interface GuidanceGuide {
   id: GuidanceId;
   title: string;
-  instructions: readonly string[];
+  /** Canonical full skill text, not a condensed prompt summary. */
+  content: string;
+  resources: readonly GuidanceResource[];
 }
 
 const CATALOG: Record<GuidanceId, GuidanceGuide> = {
   "promo-workflow-orchestration": {
     id: "promo-workflow-orchestration",
     title: "Promo Workflow Orchestration",
-    instructions: [
-      "Treat the local Promo Workflow service as the workflow authority. Start from promo_get and follow the returned pendingAction and agentWork.",
-      "Use promo_run only for the automatic transition it exposes. Use promo_commit only for the named decision or submission requested by the capsule.",
-      "Preserve expectedRevision. Reuse an idempotencyKey only when retrying the exact same action.",
-      "Do not skip locks, overwrite an existing artifact, or infer a later-stage decision.",
-      "Read the declared workspace deliverables before reworking a later node. A Grill answer must be followed by a revised deliverable that incorporates its decision id.",
-      "Use a maximum of one consequential Grill question at a time. Fix local wording or craft directly instead of escalating it as a decision.",
-    ],
+    content: PROMO_GUIDANCE_DOCUMENTS.orchestration,
+    resources: [],
   },
   "promo-writing-supervision": {
     id: "promo-writing-supervision",
     title: "Promo Writing Supervision",
-    instructions: [
-      "Anchor the work in one practical reader task, an observable mechanism, and bounded author judgment. The locked campaign intent and selected materials are the evidence boundary.",
-      "For an outline, make the opening scene, tension, proof plan, reader shift, and ending move distinct. Do not produce a feature-list sequence or polish the full manuscript prematurely.",
-      "For a master, every paragraph or passage needs a distinct job: action, explanation, proof, limitation, or synthesis. Let the immediate reader gain lead before the longer-term value when the campaign intent says so.",
-      "Keep important claims traceable: task or constraint -> product action -> observable result -> bounded conclusion. Do not invent use, results, testimonials, metrics, or independent reviews.",
-      "Use a restrained builder, curious tester, skeptical reviewer, or explanatory-media voice. Remove stock contrast formulas, pseudo-conversation, abstract padding, inflated metaphors, and defensive prebuttals.",
-      "Before submission, verify that the practical problem anchors the piece, every major feature serves it, boundaries sit next to the claims they limit, and there is at most one primary CTA.",
+    content: PROMO_GUIDANCE_DOCUMENTS.writing,
+    resources: [
+      { id: "promo-writing-supervision", title: "Workflow Writing Supervision", content: PROMO_GUIDANCE_DOCUMENTS.writingWrapper },
+      { id: "sentence-level-style", title: "中文句子级去 AI 味规则", content: PROMO_GUIDANCE_DOCUMENTS.sentence },
+      { id: "evidence-and-voice", title: "证据链与作者声音", content: PROMO_GUIDANCE_DOCUMENTS.evidence },
+      { id: "public-account", title: "公众号写作与排版", content: PROMO_GUIDANCE_DOCUMENTS.publicAccount },
+      { id: "video-package", title: "视频口播与跨平台包装", content: PROMO_GUIDANCE_DOCUMENTS.videoPackage },
     ],
   },
   "promo-storyboard-supervision": {
     id: "promo-storyboard-supervision",
     title: "Promo Storyboard Supervision",
-    instructions: [
-      "Build a continuous, time-aligned storyboard from the locked creative outline. Each shot must have a visual function, evidence role, and clear transition into the next beat.",
-      "Use direct-to-camera speaking only when its concrete function is clear: product explanation, founder perspective, user experience, instruction, or judgment. Do not force speech to fill every second.",
-      "Balance speaking, B-roll, screen evidence, and transitions around what each beat must prove. Keep factual product, people, interview, and screen-capture evidence reviewable.",
-      "Plan assets as source asset -> reusable fragment -> usage. Reuse a source where meaningful; name the reason for a necessary one-off shot.",
-      "Fix local continuity, coverage, timing, and reuse issues directly. Grill only choices that alter factual claims, speaker position, overall rhythm, or material burden across multiple beats.",
-      "Return the requested storyboard and review fields. Subtitle production, material requirements, editing, and final export belong to later nodes.",
+    content: PROMO_GUIDANCE_DOCUMENTS.storyboard,
+    resources: [],
+  },
+  "product-voiceover-campaign": {
+    id: "product-voiceover-campaign",
+    title: "Product Voiceover Campaign",
+    content: PROMO_GUIDANCE_DOCUMENTS.voiceoverCampaign,
+    resources: [],
+  },
+  "promo-deliverable-exemplars": {
+    id: "promo-deliverable-exemplars",
+    title: "Promo Deliverable Exemplars",
+    content: PROMO_GUIDANCE_DOCUMENTS.deliverableExemplarsGuide,
+    resources: [
+      { id: "storyboard", title: "分镜稿样本", content: PROMO_GUIDANCE_DOCUMENTS.exemplarStoryboard },
+      { id: "recording-execution", title: "口播录制执行稿样本", content: PROMO_GUIDANCE_DOCUMENTS.exemplarRecordingExecution },
+      { id: "spoken-lines", title: "口播台词稿样本", content: PROMO_GUIDANCE_DOCUMENTS.exemplarSpokenLines },
+      { id: "minimal-materials", title: "最小化素材清单样本", content: PROMO_GUIDANCE_DOCUMENTS.exemplarMinimalMaterials },
+      { id: "remaining-materials", title: "剩余素材需求稿样本", content: PROMO_GUIDANCE_DOCUMENTS.exemplarRemainingMaterials },
     ],
   },
 };

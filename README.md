@@ -147,4 +147,4 @@ docs/                已确认架构和后续决策
 
 ## 可选指导插件
 
-`plugins/promo-workflow-guidance/` 与服务一同维护、单独安装。它只提供三类精炼指导：状态机调度、技术产品文风监督、视频分镜监督。`agentWork.guidance` 只暴露当前节点允许调用的浅 policy 概览和 `promo_guidance` 路由；Agent 必须通过该路由读取 MCP 内置的完整指导。插件提供相同主题的宿主级增强，但流程正确性不依赖插件是否安装。
+`plugins/promo-workflow-guidance/` 与服务一同维护、单独安装。`agentWork.guidance` 只暴露当前节点允许调用的浅 policy 概览和 `promo_guidance` 路由；Agent 必须通过该路由读取 MCP 内置的完整指导。MCP 返回的是完整的流程编排、分镜监督、产品口播策划、`Geek Product Promo Writing` 主技能，以及句子级文风、证据链、公众号、视频包装四份参考资料。视频节点还会按需加载一组真实交付物样本（分镜、口播、录制执行、最小素材与剩余需求），用于锚定制品结构、交接和验收；样本中的产品、人物与案例事实不构成通用规则。流程正确性不依赖宿主是否安装插件，插件只用于把同一组主题作为宿主级增强挂载。
