@@ -14,7 +14,7 @@ import {
 } from "@promo-workflow/contracts";
 import { buildArticleAssemblerOutput, type AcceptedArticleAssetResult } from "./article-assembler-adapter.js";
 
-import { createAgentWorkCapsule, createGuidanceRequest, type GuidanceId } from "./agent-work.js";
+import { createAgentWorkCapsule, createGuidanceRequest, type AgentWorkCapsule, type GuidanceId } from "./agent-work.js";
 import { ArtifactStore } from "./artifacts/store.js";
 import type { ArtifactRef } from "./artifacts/types.js";
 import { createBaselineBrief, readBaselineProposal } from "./baseline.js";
@@ -31,6 +31,7 @@ import { createFetchBrief, TopicMatchingEngine } from "./selection/matcher.js";
 import type { SelectionEngine } from "./selection/types.js";
 import { JsonWorkflowStore } from "./store.js";
 import { loadGuidance } from "./guidance-catalog.js";
+import { createHumanReviewPacket } from "./human-review.js";
 import { WorkspaceDeliverables, type WorkspaceDeliverableRef } from "./workspace-deliverables.js";
 import type {
   PendingAction,
@@ -47,7 +48,7 @@ const RUN_TRANSITIONS: Partial<Record<WorkflowState, WorkflowState>> = {
   BASELINE_LOCKED: "ALIGNING_OUTLINE",
   OUTLINE_LOCKED: "ALIGNING_MASTER",
   MASTER_LOCKED: "REQUIREMENTS_READY",
-  REQUIREMENTS_READY: "PRODUCING",
+  REQUIREMENTS_READY: "AWAITING_HUMAN_REVIEW",
   PRODUCING: "PRODUCING",
   PRODUCTION_LOCKED: "PACKAGING",
 };
@@ -75,7 +76,7 @@ const COMMIT_TRANSITIONS = {
   { from: WorkflowState; to: WorkflowState; event: WorkflowEventKind }
 >;
 
-export type CommitKind = keyof typeof COMMIT_TRANSITIONS | "save_note";
+export type CommitKind = keyof typeof COMMIT_TRANSITIONS | "save_note" | "submit_human_review" | "submit_competition_report";
 
 export interface CreateWorkflowInput {
   carrier: WorkflowCarrier;
@@ -186,7 +187,7 @@ export class WorkflowService {
     if (!next) {
       throw new Error(`State ${record.state} has no automatic step. ${pendingActionFor(record.state)?.instruction ?? "Commit the pending action."}`);
     }
-    if (record.state === "READY") {
+      if (record.state === "READY") {
       const fetchBrief = createFetchBrief(record.context);
       record.context = { ...record.context, fetchBrief, agentWork: fetchBrief };
       record.summary = "已生成选材抓取任务；等待 Agent 回填来源材料卡。";
@@ -200,18 +201,18 @@ export class WorkflowService {
       record.context = withArtifact(record.context, artifact, { topicMatchArtifactId: artifact.artifactId });
       record.summary = `已完成双向选材匹配：${topicMatch.candidates.length} 个候选题待确认。`;
     } else if (record.state === "TOPIC_LOCKED") {
-      const agentWork = await this.createBaselineBrief(record.context, record.carrier);
+      const agentWork = withCompetitionPlan(await this.createBaselineBrief(record.context, record.carrier), record.context, "baseline");
       record.context = { ...record.context, agentWork };
       record.summary = "已生成基调对齐任务；等待 Agent 提交宣传核心和用户引导意图。";
     } else if (record.state === "BASELINE_LOCKED") {
-      const agentWork = await this.createCreativeRouteBrief(record);
+      const agentWork = withCompetitionPlan(await this.createCreativeRouteBrief(record), record.context, "outline");
       record.context = { ...record.context, agentWork };
       record.summary = "已生成 2–3 条场景化创意路线；先由用户选定一条，再进入大纲细化。";
     } else if (record.state === "OUTLINE_LOCKED") {
-      const agentWork = await this.createMasterDevelopmentBrief(record);
+      const agentWork = withCompetitionPlan(await this.createMasterDevelopmentBrief(record), record.context, "master");
       record.context = { ...record.context, agentWork };
       record.summary = "已生成主稿扩写任务；等待 Agent 提交分镜主稿或完整文章草稿。";
-    } else if (record.state === "MASTER_LOCKED") {
+      } else if (record.state === "MASTER_LOCKED") {
       const requirements = await this.compileRequirements(record);
       const artifact = await this.artifacts.write({
         kind: "requirement_set",
@@ -270,14 +271,31 @@ export class WorkflowService {
         nextCommitKind: "update_production_units",
         guidance: createGuidanceRequest(record.carrier === "article" ? ["appso-visual-proof"] : []),
       });
-      record.context = withArtifact(record.context, artifact, {
+      const productionContext = withArtifact(record.context, artifact, {
         productionPlanArtifactId: artifact.artifactId,
         productionUnits: plan.units,
         agentWork,
       });
+      const packet = await createHumanReviewPacket({
+        record: { ...record, context: productionContext },
+        artifacts: this.artifacts,
+        requestedRevision: record.revision + 1,
+        reason: "主稿、审校、素材需求与最小制作单元已就绪；进入制作前需要一次流程化人工审核。",
+      });
+      const packetArtifact = await this.artifacts.write({
+        kind: "human_review_packet",
+        content: packet,
+        mediaType: "text/markdown",
+        parentArtifactIds: artifactIdsFor(productionContext),
+        revision: record.revision + 1,
+      });
+      record.context = withArtifact(productionContext, packetArtifact, {
+        humanReviewPacketArtifactId: packetArtifact.artifactId,
+        humanReviewRequestedRevision: record.revision + 1,
+      });
       record.summary = control.complete
-        ? "制作需求均已有可复用素材；等待确认制作成品。"
-        : "已生成最小制作单元；等待人机协作推进并回填状态。";
+        ? "已冻结前序交付物和已满足的制作单元；等待人工审核后进入制作锁定。"
+        : "已冻结前序交付物并生成完整 Markdown 人工审核包；等待批准、退回或拒绝。";
     } else if (record.state === "PRODUCING") {
       const plan = await this.productionPlanFor(record.context);
       const units = readProductionUnits(record.context.productionUnits);
@@ -363,6 +381,9 @@ export class WorkflowService {
     record.revision += 1;
     record.updatedAt = new Date().toISOString();
     appendEvent(record, "automatic_step", record.summary);
+    if (record.state === "AWAITING_HUMAN_REVIEW") {
+      appendEvent(record, "human_review_requested", "已生成并投影当前人工审核包；等待结构化人工决定。");
+    }
     await this.syncWorkspace(record);
     const snapshot = await this.toSnapshot(record);
     record.idempotency[input.idempotencyKey] = snapshot;
@@ -385,6 +406,85 @@ export class WorkflowService {
       record.revision += 1;
       record.updatedAt = new Date().toISOString();
       appendEvent(record, "note_saved", input.summary);
+    } else if (input.kind === "submit_human_review") {
+      if (record.state !== "AWAITING_HUMAN_REVIEW") {
+        throw new Error(`submit_human_review is only valid in AWAITING_HUMAN_REVIEW; current state is ${record.state}.`);
+      }
+      const reviewArtifactId = requireText(input.context.reviewArtifactId, "reviewArtifactId");
+      const packetArtifact = await this.artifacts.read(reviewArtifactId);
+      if (packetArtifact.kind !== "human_review_packet" || !isRecord(packetArtifact.content)) {
+        throw new Error("reviewArtifactId must identify a human_review_packet artifact.");
+      }
+      const requestedRevision = readPositiveInteger(packetArtifact.content.requestedRevision, "human review requestedRevision");
+      const acceptedRevision = readPositiveInteger(input.context.acceptedRevision, "acceptedRevision");
+      if (requestedRevision !== record.revision || acceptedRevision !== record.revision) {
+        throw new Error(`Human review is stale: packet r${requestedRevision}, accepted r${acceptedRevision}, current r${record.revision}. Generate and review the current packet.`);
+      }
+      const decision = requireText(input.context.decision, "decision");
+      if (decision !== "approve" && decision !== "revise" && decision !== "reject") {
+        throw new Error("decision must be approve, revise, or reject.");
+      }
+      const comments = requireText(input.context.comments, "comments");
+      const reviewDecision = await this.artifacts.write({
+        kind: "decision_ledger",
+        content: { kind: "human_review", reviewArtifactId, acceptedRevision, decision, comments, decidedAt: new Date().toISOString() },
+        parentArtifactIds: artifactIdsFor(record.context),
+        revision: record.revision + 1,
+      });
+      record.context = withArtifact(record.context, reviewDecision, {
+        humanReviewDecisionArtifactId: reviewDecision.artifactId,
+        humanReview: { reviewArtifactId, acceptedRevision, decision, comments, decidedAt: new Date().toISOString() },
+      });
+      if (decision === "approve") {
+        record.state = "PRODUCING";
+        record.summary = input.summary;
+        record.revision += 1;
+        record.updatedAt = new Date().toISOString();
+        appendEvent(record, "human_review_approved", input.summary);
+      } else if (decision === "reject") {
+        record.state = "REJECTED";
+        record.summary = input.summary;
+        record.revision += 1;
+        record.updatedAt = new Date().toISOString();
+        appendEvent(record, "human_review_rejected", input.summary);
+      } else {
+        const returnToNode = readReviewReturnNode(input.context.returnToNode);
+        const priorArtifactIds = artifactIdsFor(record.context);
+        record.context = { ...record.context, supersededArtifactIds: priorArtifactIds, humanReviewReturnToNode: returnToNode };
+        if (returnToNode === 2) {
+          record.state = "ALIGNING_BASELINE";
+          record.context = { ...record.context, agentWork: withCompetitionPlan(await this.createBaselineBrief(record.context, record.carrier), record.context, "baseline") };
+        } else if (returnToNode === 3) {
+          record.state = "ALIGNING_OUTLINE";
+          record.context = { ...record.context, agentWork: withCompetitionPlan(await this.createCreativeRouteBrief(record), record.context, "outline") };
+        } else if (returnToNode === 4) {
+          record.state = "ALIGNING_MASTER";
+          record.context = { ...record.context, agentWork: withCompetitionPlan(await this.createMasterDevelopmentBrief(record), record.context, "master") };
+        } else {
+          record.state = "MASTER_LOCKED";
+          delete record.context.requirementSetArtifactId;
+          delete record.context.preproductionMaterialPlanArtifactId;
+        }
+        record.summary = input.summary;
+        record.revision += 1;
+        record.updatedAt = new Date().toISOString();
+        appendEvent(record, "human_revision_requested", input.summary);
+      }
+    } else if (input.kind === "submit_competition_report") {
+      const stage = competitionStageForState(record.state);
+      if (!stage) throw new Error("submit_competition_report is only valid while aligning baseline, outline, or master.");
+      const report = readCompetitionReport(input.context.competitionReport, stage);
+      const artifact = await this.artifacts.write({
+        kind: "competition_report",
+        content: report,
+        parentArtifactIds: artifactIdsFor(record.context),
+        revision: record.revision + 1,
+      });
+      record.context = withArtifact(record.context, artifact, { [`${stage}CompetitionReportArtifactId`]: artifact.artifactId });
+      record.summary = input.summary;
+      record.revision += 1;
+      record.updatedAt = new Date().toISOString();
+      appendEvent(record, "competition_report_submitted", input.summary);
     } else {
       const transition = COMMIT_TRANSITIONS[input.kind];
       if (record.state !== transition.from) {
@@ -1164,7 +1264,9 @@ function pendingActionFor(state: WorkflowState): PendingAction | null {
     case "MASTER_LOCKED":
       return action("compile_requirements", "run", "Compile material requirements.");
     case "REQUIREMENTS_READY":
-      return action("begin_production", "run", "Start the carrier-specific production backend.");
+      return action("request_human_review", "run", "冻结当前版本并生成完整人工审核包；审核通过后才可进入制作。");
+    case "AWAITING_HUMAN_REVIEW":
+      return action("submit_human_review", "human_review", "打开 00-control/current-review.md；以当前 revision 提交 approve、revise（指定 2–5 节点）或 reject。没有审核包不得进入制作。");
     case "PRODUCING":
       return action("update_production_units", "agent_work", "按 agentWork 回填既有制作单元状态；全部 accepted 后以 lock_production 提交后端引用和成品制品 ID。");
     case "PRODUCTION_LOCKED":
@@ -1172,6 +1274,7 @@ function pendingActionFor(state: WorkflowState): PendingAction | null {
     case "PACKAGING":
       return action("submit_release_package", "agent_work", "按 agentWork 提交三标题、两封面与简介/摘要；再以 select_release_package 选择最终组合。");
     case "RELEASE_READY":
+    case "REJECTED":
       return null;
     case "NEEDS_PROFILE":
     case "GENERATING_CREATIVE":
@@ -1262,6 +1365,8 @@ function statusFor(state: WorkflowState): WorkflowSnapshot["status"] {
     MASTER_LOCKED: { node: 5, label: "素材需求", userFacingState: "准备编译" },
     COMPILING_REQUIREMENTS: { node: 5, label: "素材需求", userFacingState: "编译中" },
     REQUIREMENTS_READY: { node: 6, label: "制作", userFacingState: "准备制作" },
+    AWAITING_HUMAN_REVIEW: { node: 5, label: "人工审核", userFacingState: "等待前序交付审核" },
+    REJECTED: { node: 5, label: "人工审核", userFacingState: "当前方案已拒绝" },
     PRODUCING: { node: 6, label: "制作", userFacingState: "制作与审核中" },
     PRODUCTION_LOCKED: { node: 7, label: "发布包装", userFacingState: "准备包装" },
     PACKAGING: { node: 7, label: "发布包装", userFacingState: "标题、封面与简介中" },
@@ -1553,6 +1658,114 @@ function readVectCutMediaSources(value: unknown): VectCutMediaSource[] {
 function readPositiveInteger(value: unknown, field: string): number {
   if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) throw new Error(`${field} must be a positive integer.`);
   return value;
+}
+
+function readReviewReturnNode(value: unknown): 2 | 3 | 4 | 5 {
+  if (value !== 2 && value !== 3 && value !== 4 && value !== 5) {
+    throw new Error("returnToNode must be 2, 3, 4, or 5 when decision is revise.");
+  }
+  return value;
+}
+
+type CompetitionStage = "baseline" | "outline" | "master";
+
+function competitionStageForState(state: WorkflowState): CompetitionStage | null {
+  if (state === "ALIGNING_BASELINE") return "baseline";
+  if (state === "ALIGNING_OUTLINE") return "outline";
+  if (state === "ALIGNING_MASTER") return "master";
+  return null;
+}
+
+function withCompetitionPlan(
+  agentWork: AgentWorkCapsule,
+  context: Record<string, unknown>,
+  stage: CompetitionStage,
+): AgentWorkCapsule {
+  const config = competitionConfig(context);
+  if (!config) return agentWork;
+  return {
+    ...agentWork,
+    inputs: { ...agentWork.inputs, competition: { ...config, stage } },
+    constraints: [
+      ...agentWork.constraints,
+      `Competition enabled: ask ${config.fanout} independent agents for genuinely different ${stage} paths; do not vary only wording.`,
+      "Separate generation from evaluation. Eliminate hard-constraint failures before scoring strategic fit, reader value, proof strength, brand voice, and production cost.",
+      config.selectionMode === "calibrated_top_p"
+        ? `Only call the retained set Top-p after recording calibrated relative probabilities and retaining the smallest cumulative set at p=${config.topP}.`
+        : "This installation has no calibrated historical ranking data: call the result weighted Top-k, never Top-p.",
+    ],
+    requestedOutput: {
+      ...agentWork.requestedOutput,
+      fields: [...agentWork.requestedOutput.fields, "competitionReport"],
+    },
+    validationRules: [
+      ...agentWork.validationRules,
+      "When competition is enabled, persist the candidate/evaluation result with promo_commit(kind=submit_competition_report) before relying on its ranking.",
+    ],
+  };
+}
+
+function competitionConfig(context: Record<string, unknown>): { fanout: number; selectionMode: "weighted_top_k" | "calibrated_top_p"; topP: number | null } | null {
+  const value = context.competition;
+  if (!isRecord(value) || value.enabled !== true) return null;
+  const fanout = value.fanout === undefined ? 3 : readPositiveInteger(value.fanout, "competition.fanout");
+  if (fanout < 2 || fanout > 5) throw new Error("competition.fanout must be between 2 and 5.");
+  const selectionMode = value.selectionMode === "calibrated_top_p" ? "calibrated_top_p" : "weighted_top_k";
+  if (selectionMode === "weighted_top_k") return { fanout, selectionMode, topP: null };
+  const topP = readNonNegativeNumber(value.topP, "competition.topP");
+  if (topP <= 0 || topP > 1) throw new Error("competition.topP must be greater than 0 and at most 1.");
+  return { fanout, selectionMode, topP };
+}
+
+function readCompetitionReport(value: unknown, expectedStage: CompetitionStage) {
+  if (!isRecord(value)) throw new Error("competitionReport must be an object.");
+  if (value.stage !== expectedStage) throw new Error(`competitionReport.stage must be ${expectedStage}.`);
+  const selectionMode = value.selectionMode;
+  if (selectionMode !== "weighted_top_k" && selectionMode !== "calibrated_top_p") {
+    throw new Error("competitionReport.selectionMode must be weighted_top_k or calibrated_top_p.");
+  }
+  if (!Array.isArray(value.candidates) || value.candidates.length < 2 || value.candidates.length > 5) {
+    throw new Error("competitionReport.candidates must contain 2-5 candidates.");
+  }
+  const ids = new Set<string>();
+  const strategies = new Set<string>();
+  const candidates = value.candidates.map((candidate, index) => {
+    if (!isRecord(candidate)) throw new Error(`competitionReport.candidates[${index}] must be an object.`);
+    const id = requireText(candidate.id, `competitionReport.candidates[${index}].id`);
+    const strategy = requireText(candidate.strategy, `competitionReport.candidates[${index}].strategy`);
+    if (ids.has(id) || strategies.has(strategy)) throw new Error("competition candidates must have unique ids and strategies.");
+    ids.add(id);
+    strategies.add(strategy);
+    const score = readNonNegativeNumber(candidate.score, `competitionReport.candidates[${index}].score`);
+    if (score > 100) throw new Error("competition candidate score must be at most 100.");
+    const probability = candidate.probability === undefined ? null : readNonNegativeNumber(candidate.probability, `competitionReport.candidates[${index}].probability`);
+    if (probability !== null && probability > 1) throw new Error("competition candidate probability must be at most 1.");
+    return { id, strategy, summary: requireText(candidate.summary, `competitionReport.candidates[${index}].summary`), hardConstraintPassed: candidate.hardConstraintPassed === true, score, probability };
+  });
+  if (selectionMode === "calibrated_top_p") {
+    const total = candidates.reduce((sum, candidate) => sum + (candidate.probability ?? 0), 0);
+    if (candidates.some((candidate) => candidate.probability === null) || total < 0.98 || total > 1.02) {
+      throw new Error("calibrated_top_p requires probabilities for every candidate that sum to approximately 1.");
+    }
+  }
+  const retainedCandidateIds = readStringArray(value.retainedCandidateIds, "competitionReport.retainedCandidateIds");
+  if (retainedCandidateIds.some((id) => !ids.has(id))) throw new Error("competitionReport.retainedCandidateIds contains an unknown candidate.");
+  const passingIds = new Set(candidates.filter((candidate) => candidate.hardConstraintPassed).map((candidate) => candidate.id));
+  if (retainedCandidateIds.some((id) => !passingIds.has(id))) {
+    throw new Error("competitionReport.retainedCandidateIds may only include candidates that passed hard constraints.");
+  }
+  const reviewerAgreement = readNonNegativeNumber(value.reviewerAgreement, "competitionReport.reviewerAgreement");
+  if (reviewerAgreement > 1) throw new Error("competitionReport.reviewerAgreement must be at most 1.");
+  return {
+    schemaVersion: 1,
+    stage: expectedStage,
+    selectionMode,
+    candidates,
+    retainedCandidateIds,
+    reviewerAgreement,
+    needsHuman: value.needsHuman === true,
+    createdAt: new Date().toISOString(),
+  };
 }
 
 function readNonNegativeNumber(value: unknown, field: string): number {

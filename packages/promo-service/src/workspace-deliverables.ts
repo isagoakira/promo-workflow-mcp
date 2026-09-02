@@ -38,16 +38,23 @@ export class WorkspaceDeliverables {
       const placement = placementFor(artifact.kind);
       if (!placement) continue;
       const record = await this.artifacts.read(artifact.artifactId);
-      const currentPath = join(root, placement.node, `${placement.name}.json`);
-      const versionPath = join(root, placement.node, `${placement.name}.${artifact.artifactId}.json`);
-      const body = JSON.stringify({
-        workflowId: input.workflowId,
-        carrier: input.carrier,
-        state: input.state,
-        workflowRevision: input.revision,
-        artifact,
-        content: record.content,
-      }, null, 2) + "\n";
+      const markdown = artifact.kind === "human_review_packet";
+      const currentPath = markdown
+        ? join(root, "00-control", "current-review.md")
+        : join(root, placement.node, `${placement.name}.json`);
+      const versionPath = markdown
+        ? join(root, "00-control", "reviews", `pre-production-r${input.revision}.${artifact.artifactId}.md`)
+        : join(root, placement.node, `${placement.name}.${artifact.artifactId}.json`);
+      const body = markdown
+        ? reviewMarkdown(record.content)
+        : JSON.stringify({
+          workflowId: input.workflowId,
+          carrier: input.carrier,
+          state: input.state,
+          workflowRevision: input.revision,
+          artifact,
+          content: record.content,
+        }, null, 2) + "\n";
       await atomicWrite(currentPath, body);
       await writeOnce(versionPath, body);
       deliverables.push({
@@ -78,6 +85,8 @@ function placementFor(kind: ArtifactKind): { node: string; name: string } | null
     case "selected_topic": return { node: "01-selection", name: "selected-topic" };
     case "baseline": return { node: "02-campaign-intent", name: "campaign-intent" };
     case "decision_ledger": return { node: "00-control", name: "decision-ledger" };
+    case "human_review_packet": return { node: "00-control", name: "current-review" };
+    case "competition_report": return { node: "00-control", name: "competition-report" };
     case "creative_routes": return { node: "03-creative-outline", name: "creative-routes" };
     case "creative_route_selection": return { node: "03-creative-outline", name: "selected-route" };
     case "creative_outline_draft": return { node: "03-creative-outline", name: "outline-draft" };
@@ -104,6 +113,13 @@ function placementFor(kind: ArtifactKind): { node: string; name: string } | null
     case "subtitle":
       return null;
   }
+}
+
+function reviewMarkdown(content: unknown): string {
+  if (typeof content === "object" && content !== null && typeof (content as { markdown?: unknown }).markdown === "string") {
+    return (content as { markdown: string }).markdown;
+  }
+  throw new Error("Human review packet must contain rendered markdown.");
 }
 
 async function atomicWrite(path: string, body: string): Promise<void> {

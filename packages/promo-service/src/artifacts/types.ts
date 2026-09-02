@@ -16,6 +16,8 @@ export type ArtifactKind =
   | "recording_execution"
   | "asset_plan"
   | "requirement_set"
+  | "human_review_packet"
+  | "competition_report"
   | "preproduction_material_plan"
   | "subtitle"
   | "article_document"

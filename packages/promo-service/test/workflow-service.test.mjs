@@ -28,6 +28,7 @@ test("workflow advances with optimistic revisions and idempotency", async () => 
         capabilities: ["MCP state control"],
         activeCampaignLines: ["reliable agent workflow", "local MCP state control"],
       },
+      competition: { enabled: true, fanout: 2, selectionMode: "weighted_top_k" },
       topicSources: [{ id: "demo", label: "Demo feed", kind: "rss", url: "https://example.com/feed.xml" }],
     },
     idempotencyKey: "create-1",
@@ -100,6 +101,7 @@ test("workflow advances with optimistic revisions and idempotency", async () => 
   assert.equal(baselineStarted.state, "ALIGNING_BASELINE");
   assert.equal(baselineStarted.agentWork.stage, "baseline_alignment");
   assert.deepEqual(baselineStarted.agentWork.guidance.policies.map((policy) => policy.id), ["promo-workflow-orchestration", "promo-writing-supervision", "appso-article-contract"]);
+  assert.equal(baselineStarted.agentWork.inputs.competition.fanout, 2);
   const guidance = await service.guidance(baselineStarted.workflowId);
   assert.deepEqual(guidance.guides.map((guide) => guide.id), ["promo-workflow-orchestration", "promo-writing-supervision", "appso-article-contract"]);
   assert.match(guidance.guides[1].content, /Geek Product Promo Writing/);
@@ -110,9 +112,30 @@ test("workflow advances with optimistic revisions and idempotency", async () => 
     /不允许加载指导/,
   );
 
-  const proposed = await service.commit({
+  const competition = await service.commit({
     workflowId: created.workflowId,
     expectedRevision: baselineStarted.revision,
+    kind: "submit_competition_report",
+    summary: "Compare independent baseline paths",
+    context: {
+      competitionReport: {
+        stage: "baseline",
+        selectionMode: "weighted_top_k",
+        candidates: [
+          { id: "conversion", strategy: "conversion-first", summary: "Lead with a fast repeatable outcome.", hardConstraintPassed: true, score: 84 },
+          { id: "evidence", strategy: "evidence-first", summary: "Lead with a recorded proof path.", hardConstraintPassed: true, score: 79 },
+        ],
+        retainedCandidateIds: ["conversion", "evidence"],
+        reviewerAgreement: 0.8,
+        needsHuman: false,
+      },
+    },
+    idempotencyKey: "baseline-competition-1",
+  });
+  assert.equal(competition.artifactRefs.some((artifact) => artifact.kind === "competition_report"), true);
+  const proposed = await service.commit({
+    workflowId: created.workflowId,
+    expectedRevision: competition.revision,
     kind: "propose_baseline",
     summary: "Proposed baseline",
     context: {
@@ -234,7 +257,15 @@ test("video workflow connects outline, master, requirements, production, and rel
   assert.equal(requirements.state, "REQUIREMENTS_READY");
   assert.equal(requirements.artifactRefs.some((artifact) => artifact.kind === "requirement_set"), true);
   assert.equal(requirements.artifactRefs.some((artifact) => artifact.kind === "preproduction_material_plan"), true);
-  const producing = await service.run({ workflowId: created.workflowId, expectedRevision: requirements.revision, idempotencyKey: "e2e-production-plan" });
+  const review = await service.run({ workflowId: created.workflowId, expectedRevision: requirements.revision, idempotencyKey: "e2e-human-review" });
+  assert.equal(review.state, "AWAITING_HUMAN_REVIEW");
+  assert.equal(review.artifactRefs.some((artifact) => artifact.kind === "human_review_packet"), true);
+  const reviewPacket = review.artifactRefs.find((artifact) => artifact.kind === "human_review_packet");
+  const producing = await service.commit({
+    workflowId: created.workflowId, expectedRevision: review.revision, kind: "submit_human_review", summary: "Approve pre-production review",
+    context: { reviewArtifactId: reviewPacket.artifactId, acceptedRevision: review.revision, decision: "approve", comments: "Evidence and planned materials are ready for production." },
+    idempotencyKey: "e2e-human-review-approve",
+  });
   assert.equal(producing.state, "PRODUCING");
   const updated = await service.commit({
     workflowId: created.workflowId, expectedRevision: producing.revision, kind: "update_production_units", summary: "Accept production units",
@@ -266,7 +297,8 @@ test("video workflow connects outline, master, requirements, production, and rel
 
 test("article workflow assembles a local preview before production lock and release packaging", async () => {
   const directory = await mkdtemp(join(tmpdir(), "promo-workflow-article-e2e-"));
-  const service = new WorkflowService(new JsonWorkflowStore(join(directory, "workflows.json")), new ArtifactStore(join(directory, "artifacts")));
+  const artifacts = new ArtifactStore(join(directory, "artifacts"));
+  const service = new WorkflowService(new JsonWorkflowStore(join(directory, "workflows.json")), artifacts, undefined, undefined, undefined, new WorkspaceDeliverables(join(directory, "workspace"), artifacts));
   const created = await service.create({
     carrier: "article", summary: "End-to-end article",
     context: {
@@ -298,7 +330,19 @@ test("article workflow assembles a local preview before production lock and rele
   assert.equal(master.artifactRefs.some((artifact) => artifact.kind === "master_review"), true);
   const lockedMaster = await service.commit({ workflowId: created.workflowId, expectedRevision: master.revision, kind: "lock_master", summary: "Lock master", context: {}, idempotencyKey: "article-lock-master" });
   const requirements = await service.run({ workflowId: created.workflowId, expectedRevision: lockedMaster.revision, idempotencyKey: "article-compile" });
-  const producing = await service.run({ workflowId: created.workflowId, expectedRevision: requirements.revision, idempotencyKey: "article-produce-brief" });
+  const review = await service.run({ workflowId: created.workflowId, expectedRevision: requirements.revision, idempotencyKey: "article-human-review" });
+  assert.equal(review.state, "AWAITING_HUMAN_REVIEW");
+  const reviewPacket = review.artifactRefs.find((artifact) => artifact.kind === "human_review_packet");
+  assert.ok(reviewPacket);
+  const reviewDeliverable = review.deliverables.find((deliverable) => deliverable.kind === "human_review_packet");
+  assert.ok(reviewDeliverable);
+  assert.match(await readFile(reviewDeliverable.path, "utf8"), /节点一：选材与证据/);
+  assert.match(await readFile(reviewDeliverable.path, "utf8"), /节点五：素材需求与前期执行/);
+  const producing = await service.commit({
+    workflowId: created.workflowId, expectedRevision: review.revision, kind: "submit_human_review", summary: "Approve article pre-production review",
+    context: { reviewArtifactId: reviewPacket.artifactId, acceptedRevision: review.revision, decision: "approve", comments: "Proceed to acquire the mapped article proof." },
+    idempotencyKey: "article-human-review-approve",
+  });
   assert.equal(producing.agentWork.guidance.policies.some((policy) => policy.id === "appso-visual-proof"), true);
   const updated = await service.commit({
     workflowId: created.workflowId, expectedRevision: producing.revision, kind: "update_production_units", summary: "Accept material",

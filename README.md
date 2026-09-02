@@ -86,13 +86,14 @@ Agent 完成抓取后，以 `promo_commit(kind=submit_fetched_topics)` 回填 1�
 创意与大纲：BASELINE_LOCKED -> GENERATING_CREATIVE -> ALIGNING_OUTLINE -> OUTLINE_LOCKED
 母版细化：OUTLINE_LOCKED -> GENERATING_MASTER -> ALIGNING_MASTER -> MASTER_LOCKED
 需求编译：MASTER_LOCKED -> COMPILING_REQUIREMENTS -> REQUIREMENTS_READY
-制作：REQUIREMENTS_READY -> PRODUCING -> PRODUCTION_LOCKED
+人工审核：REQUIREMENTS_READY -> AWAITING_HUMAN_REVIEW -> PRODUCING
+制作：PRODUCING -> PRODUCTION_LOCKED
 发布包装：PRODUCTION_LOCKED -> PACKAGING -> RELEASE_READY
 ```
 
 当前宣传口径允许同时启用 2–3 条。
 
-七个节点共用同一条可恢复链路。创意和母版先提交草案，再按有限 Grill 锁定；节点 5 自动把主稿素材使用位编译成最小需求集和视频 SRT；节点 6 只允许更新既有制作单元，全部验收后才可锁定；节点 7 的标题、封面和发布文本必须引用锁定制作证据。
+七个节点共用同一条可恢复链路。创意和母版先提交草案，再按有限 Grill 锁定；节点 5 自动把主稿素材使用位编译成最小需求集和视频 SRT；随后系统冻结版本并进入 `AWAITING_HUMAN_REVIEW`，将节点 1–5 已通过材料、决策与 Grill 历史、候选竞争报告、证据链和素材需求顺序汇编为 `00-control/current-review.md`。只有绑定该 revision 的结构化人工批准才能进入节点 6；退回会保留旧制品追溯链并从指定节点 2–5 重启，拒绝则终止当前方案。节点 6 只允许更新既有制作单元，全部验收后才可锁定；节点 7 的标题、封面和发布文本必须引用锁定制作证据。
 
 基调节点从一个具体读者场景开始。`promo_run` 返回一张决策卡，Agent 通过 `propose_baseline` 提交宣传核心、用户引导意图和 `campaignIntent`（即时收益、长期价值、要改变的认知、要展示的证据、表达边界、CTA）。每轮最多一个场景化 Grill；用户回答后会写入 `00-control/decision-ledger.json`，Agent 必须提交一版声明已吸收该决定的修订稿，才能 `lock_baseline`。
 
@@ -100,7 +101,7 @@ Agent 完成抓取后，以 `promo_commit(kind=submit_fetched_topics)` 回填 1�
 
 母版细化节点整稿先行：视频生成完整时间轴分镜母版，推文生成完整文章母稿。视频每个有台词镜头必须标记 `CAM`、`VO` 或 `MIXED`，并写明具体录制方向；锁定后服务从同一份事实源投影出 `04-master/spoken-script.json` 与 `04-master/recording-execution.json`，不会为它们另编事实。每版母稿都必须附一份独立的 `04-master/master-review.json`，记录文风、证据、素材复用与视频分镜审校；若 Grill 改变主稿，修订版及审校单都会保留。它默认自动修复，只对阻塞性决策 Grill，并由 `geek-product-promo-writing` 与 `storyboard-direction` 分别监督文字和分镜。共享素材按 `source asset -> fragment -> usage` 规划，普通素材至少两个有效使用位，必要的一次性素材必须说明理由。
 
-需求编译节点完全自动，将消费侧使用位合并为最小、工具无关的素材需求集，并从视频母版派生 SRT。视频只生成一份 `05-requirements/preproduction-material-plan.json`：它以高复用母素材组织全量前期工作，同时锁定演示环境、连续采集路径、可见验收状态、剪辑余量、备份与事实性降级边界；CAM/VO 已在 Node 4 锁定，不在此重复编写。`05-requirements/material-requirements.json` 会显式记录它由哪一版锁定主稿派生；实际拍摄、AI 生成、剪辑和工具选择属于后续制作节点；只有 `capability_gap` 会触发需求回流。
+需求编译节点完全自动，将消费侧使用位合并为最小、工具无关的素材需求集，并从视频母版派生 SRT。视频只生成一份 `05-requirements/preproduction-material-plan.json`：它以高复用母素材组织全量前期工作，同时锁定演示环境、连续采集路径、可见验收状态、剪辑余量、备份与事实性降级边界；CAM/VO 已在 Node 4 锁定，不在此重复编写。`05-requirements/material-requirements.json` 会显式记录它由哪一版锁定主稿派生；随后 `00-control/current-review.md` 连同带版本号的 `00-control/reviews/` 历史包交给人工审核，实际拍摄、AI 生成、剪辑和工具选择只能在批准后进入制作节点。
 
 制作节点共用 `PRODUCING -> PRODUCTION_LOCKED` 和极简 `production_unit` 生命周期。每次单元更新都会写入 `06-production/production-checkpoint.json`，包含计划、实时状态、验收制品与来源；调用文章/视频后端时再写入 `06-production/backend-handoff.json`。因此制作过程不再只有最终锁定结果，任一 Agent 都能从检查点恢复、审阅或退回对应单元。
 
@@ -165,3 +166,5 @@ docs/                已确认架构和后续决策
 ## 可选指导插件
 
 `plugins/promo-workflow-guidance/` 与服务一同维护、单独安装。`agentWork.guidance` 只暴露当前节点允许调用的浅 policy 概览和 `promo_guidance` 路由；Agent 必须通过该路由读取 MCP 内置的完整指导。MCP 返回的是完整的流程编排、分镜监督、产品口播策划、`Geek Product Promo Writing` 主技能，以及句子级文风、证据链、公众号、视频包装四份参考资料。推文不再把一整份 AppSo 方法塞进每个阶段，而是按交付物加载六个插件：N2 锁定读者决定、人文中心与作者立场；N3 将其带入文章路线和大纲；N4 扩写主稿并审校；N4/N6 规划和核验视觉证明；N6 审阅本地预览；N7 压缩为标题、封面与摘要。`articleEditorialIntent` 会被写入基线和文章大纲，避免人文中心、贯穿线和情绪弧在后续节点丢失。它们都是编辑方法，不是刊物身份模仿。视频节点还会按需加载不可缩减的“视频前期交付模板契约”（大纲脚本、分镜、口播、录制执行、前期素材执行包的固定章节、字段粒度、交接 ID 与验收）和便于快速定位的单项结构卡。案例中的产品、人物与事实不构成通用规则；其交付结构、分析角度、验收粒度和事实边界才是默认规则。流程正确性不依赖宿主是否安装插件，插件只用于把同一组主题作为宿主级增强挂载。
+
+低风险节点可在创建流程的 `context.competition` 中显式开启竞争，例如 `{ "enabled": true, "fanout": 3, "selectionMode": "weighted_top_k" }`。此时 Agent 必须产出不同策略的候选、由独立评审进行硬约束淘汰和加权评分，并通过 `submit_competition_report` 保存结果；所有候选与评审会进入人工审核包。没有基于人工排序数据校准的相对概率时，服务强制称其为“加权 Top-k”，不伪称 Top-p；只有传入完整校准概率及 `selectionMode: "calibrated_top_p"` 时才允许记录 Top-p。

@@ -23,6 +23,11 @@ export type WorkflowEventKind =
   | "master_draft_submitted"
   | "master_grill_answered"
   | "master_locked"
+  | "human_review_requested"
+  | "human_review_approved"
+  | "human_revision_requested"
+  | "human_review_rejected"
+  | "competition_report_submitted"
   | "production_units_updated"
   | "production_locked"
   | "release_package_submitted"
@@ -53,7 +58,7 @@ export interface WorkflowRecord {
 
 export interface PendingAction {
   id: string;
-  kind: "run" | "commit" | "agent_work";
+  kind: "run" | "commit" | "agent_work" | "human_review";
   instruction: string;
 }
 

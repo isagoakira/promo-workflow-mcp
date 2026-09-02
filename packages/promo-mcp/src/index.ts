@@ -33,6 +33,8 @@ const commitKinds = [
   "lock_production",
   "submit_release_package",
   "select_release_package",
+  "submit_human_review",
+  "submit_competition_report",
   "save_note",
 ] as const;
 
