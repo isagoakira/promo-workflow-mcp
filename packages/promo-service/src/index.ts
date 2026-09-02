@@ -14,6 +14,7 @@ export {
 export { createMasterDevelopmentBrief, readMasterDraft, validateMasterDraft } from "./master-development.js";
 export { buildArticleAssemblerOutput, createArticleAssemblerReference } from "./article-assembler-adapter.js";
 export { unavailableCutWorkbenchBridge, UnavailableCutWorkbenchBridge, runCutWorkbenchBridge } from "./cut-workbench-bridge.js";
+export { CutWorkbenchStdioBridge } from "./cut-workbench-stdio-bridge.js";
 export { unavailableVectCutBridge, UnavailableVectCutBridge, VectCutHttpBridge, runVectCutBridge } from "./vectcut-bridge.js";
 export { validateProductionResults } from "./production-results.js";
 export { compileRequirements, serializeSrt, validateRequirementCoverage, validateSubtitles } from "./requirements-compiler.js";
@@ -66,6 +67,7 @@ export type {
   CutWorkbenchBridgeResult,
   CutWorkbenchProductionResult,
 } from "./cut-workbench-bridge.js";
+export type { CutWorkbenchStdioBridgeOptions } from "./cut-workbench-stdio-bridge.js";
 export type {
   VectCutBridge,
   VectCutBridgeInput,

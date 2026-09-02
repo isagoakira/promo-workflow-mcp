@@ -6,6 +6,7 @@ import {
   JsonWorkflowStore,
   ArtifactStore,
   WorkspaceDeliverables,
+  CutWorkbenchStdioBridge,
   VectCutHttpBridge,
   WorkflowService,
   GUIDANCE_IDS,
@@ -208,7 +209,8 @@ async function main() {
   const vectCutBridge = process.env.PROMO_VECTCUT_BASE_URL
     ? new VectCutHttpBridge({ baseUrl: process.env.PROMO_VECTCUT_BASE_URL })
     : undefined;
-  const server = createPromoServer(new WorkflowService(store, artifacts, undefined, undefined, vectCutBridge, workspace));
+  const cutWorkbenchBridge = CutWorkbenchStdioBridge.fromEnvironment();
+  const server = createPromoServer(new WorkflowService(store, artifacts, undefined, cutWorkbenchBridge, vectCutBridge, workspace));
   await server.connect(new StdioServerTransport());
 }
 
