@@ -26,6 +26,7 @@ export {
   validateReleasePackagingDraft,
 } from "./release-packaging.js";
 export { ArtifactStore } from "./artifacts/store.js";
+export { WorkspaceDeliverables } from "./workspace-deliverables.js";
 export { WorkflowService } from "./workflow-service.js";
 export { TopicMatchingEngine, createFetchBrief } from "./selection/index.js";
 export type {
@@ -78,6 +79,7 @@ export type {
   ArtifactRef,
   WriteArtifactInput,
 } from "./artifacts/types.js";
+export type { WorkspaceDeliverableRef, SyncWorkflowWorkspaceInput } from "./workspace-deliverables.js";
 export type {
   FetchedTopic,
   ProductProfile,

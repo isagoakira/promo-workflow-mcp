@@ -2,6 +2,7 @@ import type { WorkflowState } from "@promo-workflow/contracts";
 import type { AgentWorkCapsule } from "./agent-work.js";
 import type { ArtifactRef } from "./artifacts/types.js";
 import type { BaselineProposal } from "./baseline.js";
+import type { WorkspaceDeliverableRef } from "./workspace-deliverables.js";
 import type { TopicFetchBrief, TopicMatchRun } from "./selection/types.js";
 
 export type WorkflowCarrier = "video" | "article";
@@ -14,6 +15,8 @@ export type WorkflowEventKind =
   | "baseline_proposed"
   | "baseline_grill_answered"
   | "baseline_locked"
+  | "creative_routes_proposed"
+  | "creative_route_selected"
   | "outline_draft_submitted"
   | "outline_grill_answered"
   | "outline_locked"
@@ -66,6 +69,12 @@ export interface WorkflowSnapshot {
   topicMatch?: TopicMatchRun | undefined;
   baselineProposal?: BaselineProposal | undefined;
   baselineGrillCount?: number | undefined;
+  deliverables: readonly WorkspaceDeliverableRef[];
+  status: {
+    node: number;
+    label: string;
+    userFacingState: string;
+  };
   artifactRefs: ArtifactRef[];
   pendingAction: PendingAction | null;
 }

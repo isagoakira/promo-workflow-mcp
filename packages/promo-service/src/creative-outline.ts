@@ -4,6 +4,7 @@ import {
   type ArticleOutlineSection,
   type CarrierOutline,
   type ContentBudget,
+  type CreativeRoute,
   type CreativeSpine,
   type MacroStyleFrame,
   type MacroStyleReview,
@@ -20,13 +21,19 @@ export interface CreateCreativeOutlineBriefInput {
   selectedMaterials: readonly string[];
   productProfile: unknown;
   budget: ContentBudget;
+  selectedRoute: CreativeRoute;
   recommendedStoryEngine?: string | undefined;
+  priorDraft?: CreativeOutlineDraft | undefined;
+  latestDecision?: Record<string, unknown> | undefined;
 }
 
 export interface CreativeOutlineDraft {
+  selectedRouteId: string;
   creativeSpine: CreativeSpine;
   outline: CarrierOutline;
   macroStyleReview: MacroStyleReview;
+  pendingQuestion: import("@promo-workflow/contracts").ScenarioGrillQuestion | null;
+  incorporatesDecisionIds: readonly string[];
 }
 
 /**
@@ -63,8 +70,12 @@ export function createCreativeOutlineBrief(input: CreateCreativeOutlineBriefInpu
       productProfile: input.productProfile,
       budget: input.budget,
       recommendedStoryEngine,
+      selectedRoute: input.selectedRoute,
+      ...(input.priorDraft ? { priorDraft: input.priorDraft } : {}),
+      ...(input.latestDecision ? { latestDecision: input.latestDecision } : {}),
     },
     constraints: [
+      "Expand only the user-selected scene-led creative route; do not reopen unrelated routes.",
       "Create one cross-media creative spine before adapting it to the requested carrier.",
       "Use the locked baseline and selected materials as the evidence boundary; list unsupported claims explicitly.",
       `Use ${input.budget.carrier} ${input.budget.tier} budget: ${input.budget.beatRange[0]}-${input.budget.beatRange[1]} beats.`,
@@ -75,16 +86,30 @@ export function createCreativeOutlineBrief(input: CreateCreativeOutlineBriefInpu
       "Ask at most one consequential Grill question at a time, and only when it can change multiple beats or the evidence strategy.",
     ],
     requestedOutput: {
-      description: "One creative spine, one carrier-specific outline, and a macro-style review.",
-      fields: ["creativeSpine", "outline", "macroStyleReview"],
+      description: "One selected route, one creative spine, one carrier-specific outline, a macro-style review, and at most one scenario Grill question.",
+      fields: ["selectedRouteId", "creativeSpine", "outline", "macroStyleReview", "pendingQuestion", "incorporatesDecisionIds"],
     },
     validationRules: [
-      "All creative-spine and macro-style fields must be non-empty.",
+      "selectedRouteId must equal the user-selected route; all creative-spine and macro-style fields must be non-empty.",
       "Video beat count and final edited duration must match the supplied budget.",
       "Article beat count must match the supplied budget; section ids and purposes must be unique.",
       "Submit through promo_commit(kind=submit_outline_draft).",
     ],
     nextCommitKind: "submit_outline_draft",
+    decisionCard: {
+      node: 3,
+      label: "创意主线与文章/视频大纲",
+      known: ["宣传意图和证据边界已锁定。"],
+      recommendation: "先比较不同的场景切口，再把用户选中的那一条由宏观追问到可写、可拍的细节。",
+      userDecision: "在 2-3 条互斥创意路线中选一条；之后每轮只回答一个会改变多个段落的场景问题。",
+      whyItMatters: "路线决定开场张力、证明方式、段落推进与素材优先级。",
+      nextArtifact: "03-creative-outline/locked-outline.json",
+    },
+    deliverable: {
+      name: "creative outline",
+      workspaceFile: "03-creative-outline/locked-outline.json",
+      purpose: "后续扩写、分镜和跨载体改编的结构母版。",
+    },
     guidance: { plugin: "promo-workflow-guidance", skills: ["promo-writing-supervision"] },
   });
 }
@@ -93,16 +118,52 @@ export function createCreativeOutlineBrief(input: CreateCreativeOutlineBriefInpu
 export function readCreativeOutlineDraft(value: unknown, budget: ContentBudget): CreativeOutlineDraft {
   if (!isRecord(value)) throw new Error("Outline draft is required.");
 
+  const selectedRouteId = requiredText(value.selectedRouteId, "selectedRouteId");
   const creativeSpine = readCreativeSpine(value.creativeSpine);
+  if (creativeSpine.routeId !== selectedRouteId) throw new Error("creativeSpine.routeId must equal selectedRouteId.");
   const outline = readCarrierOutline(value.outline, budget);
   const macroStyleReview = readMacroStyleReview(value.macroStyleReview);
 
-  return { creativeSpine, outline, macroStyleReview };
+  return {
+    selectedRouteId,
+    creativeSpine,
+    outline,
+    macroStyleReview,
+    pendingQuestion: value.pendingQuestion === null || value.pendingQuestion === undefined
+      ? null
+      : readScenarioQuestion(value.pendingQuestion),
+    incorporatesDecisionIds: readTextArray(value.incorporatesDecisionIds, "outlineDraft.incorporatesDecisionIds"),
+  };
+}
+
+function readScenarioQuestion(value: unknown): import("@promo-workflow/contracts").ScenarioGrillQuestion {
+  if (!isRecord(value) || !Array.isArray(value.options)) throw new Error("outlineDraft.pendingQuestion must be a scenario Grill question.");
+  if (value.options.length < 2 || value.options.length > 3) throw new Error("outline Grill requires 2-3 options.");
+  const options = value.options.map((option, index) => {
+    if (!isRecord(option)) throw new Error(`outlineDraft.pendingQuestion.options[${index}] must be an object.`);
+    return {
+      id: requiredText(option.id, `outlineDraft.pendingQuestion.options[${index}].id`),
+      label: requiredText(option.label, `outlineDraft.pendingQuestion.options[${index}].label`),
+      rationale: requiredText(option.rationale, `outlineDraft.pendingQuestion.options[${index}].rationale`),
+    };
+  });
+  const recommendedOptionId = requiredText(value.recommendedOptionId, "outlineDraft.pendingQuestion.recommendedOptionId");
+  if (!options.some((option) => option.id === recommendedOptionId)) throw new Error("outline Grill recommendation must identify an option.");
+  return {
+    id: requiredText(value.id, "outlineDraft.pendingQuestion.id"),
+    scene: requiredText(value.scene, "outlineDraft.pendingQuestion.scene"),
+    tension: requiredText(value.tension, "outlineDraft.pendingQuestion.tension"),
+    prompt: requiredText(value.prompt, "outlineDraft.pendingQuestion.prompt"),
+    options,
+    recommendedOptionId,
+    affectedDeliverables: readTextArray(value.affectedDeliverables, "outlineDraft.pendingQuestion.affectedDeliverables"),
+  };
 }
 
 function readCreativeSpine(value: unknown): CreativeSpine {
   if (!isRecord(value)) throw new Error("creativeSpine is required.");
   return {
+    routeId: requiredText(value.routeId, "creativeSpine.routeId"),
     creativePremise: requiredText(value.creativePremise, "creativeSpine.creativePremise"),
     storyEngine: requiredText(value.storyEngine, "creativeSpine.storyEngine"),
     narrativeAnchor: requiredText(value.narrativeAnchor, "creativeSpine.narrativeAnchor"),
@@ -227,10 +288,12 @@ function readArticleSections(value: unknown): ArticleOutlineSection[] {
     return {
       id,
       sectionPurpose,
+      sceneOrAction: requiredText(section.sceneOrAction, `outline.sections[${index}].sceneOrAction`),
       content: requiredText(section.content, `outline.sections[${index}].content`),
       readerShift: nullableText(section.readerShift, `outline.sections[${index}].readerShift`),
       evidence: readTextArray(section.evidence, `outline.sections[${index}].evidence`),
       authorJudgment: nullableText(section.authorJudgment, `outline.sections[${index}].authorJudgment`),
+      avoid: nullableText(section.avoid, `outline.sections[${index}].avoid`),
       transition: nullableText(section.transition, `outline.sections[${index}].transition`),
       visualAsset: nullableText(section.visualAsset, `outline.sections[${index}].visualAsset`),
     };

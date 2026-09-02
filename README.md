@@ -21,7 +21,7 @@ npm start
 
 服务默认把状态写入 `data/workflows.json`。该目录已被 Git 忽略；如需把数据移到其他位置，设置 `PROMO_WORKFLOW_DATA_DIR` 环境变量即可。
 
-材料卡、大纲、母稿、分镜、SRT、预览等内容存入同目录的 `data/artifacts/`。每份工件不可变，带 SHA-256 内容哈希、父工件引用和版本号；工作流状态只保留引用与当前的紧凑胶囊。
+材料卡、大纲、母稿、分镜、SRT、预览等内容先存入同目录的 `data/artifacts/`。每份工件不可变，带 SHA-256 内容哈希、父工件引用和版本号。与此同时，服务会把每个节点的当前交付物投影到 `data/workspace/<workflowId>/`：例如 `02-campaign-intent/campaign-intent.json`、`03-creative-outline/locked-outline.json`、`04-master/locked-master.json`。固定路径方便下一位 Agent 直接读取；同目录的 `*.artifact_<id>.json` 保留精确制品版本，`manifest.json` 列出全部可用交付物。
 
 任何支持 stdio MCP 的 Agent 都可以直接使用根目录的 [`.mcp.json`](.mcp.json)。它只暴露三个稳定工具：
 
@@ -79,15 +79,15 @@ Agent 完成抓取后，以 `promo_commit(kind=submit_fetched_topics)` 回填 1�
 
 七个节点共用同一条可恢复链路。创意和母版先提交草案，再按有限 Grill 锁定；节点 5 自动把主稿素材使用位编译成最小需求集和视频 SRT；节点 6 只允许更新既有制作单元，全部验收后才可锁定；节点 7 的标题、封面和发布文本必须引用锁定制作证据。
 
-基调节点已落地：`promo_run` 生成基调 `agentWork` 胶囊，Agent 通过 `propose_baseline` 提交宣传核心和用户引导意图；每轮只保留一个高影响问题，最终以 `lock_baseline` 写入不可变基调工件。
+基调节点从一个具体读者场景开始。`promo_run` 返回一张决策卡，Agent 通过 `propose_baseline` 提交宣传核心、用户引导意图和 `campaignIntent`（即时收益、长期价值、要改变的认知、要展示的证据、表达边界、CTA）。每轮最多一个场景化 Grill；用户回答后会写入 `00-control/decision-ledger.json`，Agent 必须提交一版声明已吸收该决定的修订稿，才能 `lock_baseline`。
 
-创意与大纲节点先生成一条跨媒介创意主线，再按当前载体生成视频或推文大纲。它使用有限、由宏观到载体细节的 Grill，并受 `geek-product-promo-writing` 的宏观文风监督。视频支持 2/5/10 分钟，推文支持 800–1,500、2,000–3,500、4,000–6,000 字三档。第三节点只锁定结构，具体成稿与制作属于下一节点。
+创意与大纲节点不再直接吐出“痛点—机制—CTA”模板。它先通过 `propose_creative_routes` 提出 2–3 条互斥的场景路线（开场、张力、证明方式、读者变化），用户用 `select_creative_route` 选定一条；Agent 才展开大纲。推文每一节强制说明段落任务、场景/动作、读者变化、证据、作者判断和不该写什么。场景 Grill 的回答同样必须触发一版新大纲。视频支持 2/5/10 分钟，推文支持 800–1,500、2,000–3,500、4,000–6,000 字三档。
 
-母版细化节点整稿先行：视频生成完整时间轴分镜母版，推文生成完整文章母稿。它默认自动修复，只对阻塞性决策 Grill，并由 `geek-product-promo-writing` 与 `storyboard-direction` 分别监督文字和分镜。共享素材按 `source asset -> fragment -> usage` 规划，普通素材至少两个有效使用位，必要的一次性素材必须说明理由。
+母版细化节点整稿先行：视频生成完整时间轴分镜母版，推文生成完整文章母稿。每版母稿都必须附一份独立的 `04-master/master-review.json`，记录文风、证据、素材复用与视频分镜审校；若 Grill 改变主稿，修订版及审校单都会保留。它默认自动修复，只对阻塞性决策 Grill，并由 `geek-product-promo-writing` 与 `storyboard-direction` 分别监督文字和分镜。共享素材按 `source asset -> fragment -> usage` 规划，普通素材至少两个有效使用位，必要的一次性素材必须说明理由。
 
-需求编译节点完全自动，将消费侧使用位合并为最小、工具无关的素材需求集，并从视频母版派生 SRT。实际拍摄、AI 生成、剪辑和工具选择属于后续制作节点；只有 `capability_gap` 会触发需求回流。
+需求编译节点完全自动，将消费侧使用位合并为最小、工具无关的素材需求集，并从视频母版派生 SRT。`05-requirements/material-requirements.json` 会显式记录它由哪一版锁定主稿派生；实际拍摄、AI 生成、剪辑和工具选择属于后续制作节点；只有 `capability_gap` 会触发需求回流。
 
-制作节点共用 `PRODUCING -> PRODUCTION_LOCKED` 和极简 `production_unit` 生命周期。每个已验收单元必须回填制品引用与来源。
+制作节点共用 `PRODUCING -> PRODUCTION_LOCKED` 和极简 `production_unit` 生命周期。每次单元更新都会写入 `06-production/production-checkpoint.json`，包含计划、实时状态、验收制品与来源；调用文章/视频后端时再写入 `06-production/backend-handoff.json`。因此制作过程不再只有最终锁定结果，任一 Agent 都能从检查点恢复、审阅或退回对应单元。
 
 - 推文：从锁定母稿自动生成单平台的有序内容块文档、素材清单和本地预览类似物；预览确认后锁定。
 - 视频 / Cut Workbench：桥返回已验证项目版本、成品与最终字幕后锁定。

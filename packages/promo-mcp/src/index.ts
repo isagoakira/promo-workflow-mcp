@@ -5,6 +5,7 @@ import * as z from "zod/v4";
 import {
   JsonWorkflowStore,
   ArtifactStore,
+  WorkspaceDeliverables,
   VectCutHttpBridge,
   WorkflowService,
   type CommitKind,
@@ -18,6 +19,8 @@ const commitKinds = [
   "propose_baseline",
   "answer_baseline_grill",
   "lock_baseline",
+  "propose_creative_routes",
+  "select_creative_route",
   "submit_outline_draft",
   "answer_outline_grill",
   "lock_outline",
@@ -175,10 +178,11 @@ async function main() {
   const dataDir = resolve(process.env.PROMO_WORKFLOW_DATA_DIR ?? join(process.cwd(), "data"));
   const store = new JsonWorkflowStore(join(dataDir, "workflows.json"));
   const artifacts = new ArtifactStore(join(dataDir, "artifacts"));
+  const workspace = new WorkspaceDeliverables(join(dataDir, "workspace"), artifacts);
   const vectCutBridge = process.env.PROMO_VECTCUT_BASE_URL
     ? new VectCutHttpBridge({ baseUrl: process.env.PROMO_VECTCUT_BASE_URL })
     : undefined;
-  const server = createPromoServer(new WorkflowService(store, artifacts, undefined, undefined, vectCutBridge));
+  const server = createPromoServer(new WorkflowService(store, artifacts, undefined, undefined, vectCutBridge, workspace));
   await server.connect(new StdioServerTransport());
 }
 

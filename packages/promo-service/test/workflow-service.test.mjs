@@ -1,16 +1,21 @@
 import assert from "node:assert/strict";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { ArtifactStore, JsonWorkflowStore, WorkflowService } from "../dist/index.js";
+import { ArtifactStore, JsonWorkflowStore, WorkflowService, WorkspaceDeliverables } from "../dist/index.js";
 
 test("workflow advances with optimistic revisions and idempotency", async () => {
   const directory = await mkdtemp(join(tmpdir(), "promo-workflow-"));
+  const artifacts = new ArtifactStore(join(directory, "artifacts"));
   const service = new WorkflowService(
     new JsonWorkflowStore(join(directory, "workflows.json")),
-    new ArtifactStore(join(directory, "artifacts")),
+    artifacts,
+    undefined,
+    undefined,
+    undefined,
+    new WorkspaceDeliverables(join(directory, "workspace"), artifacts),
   );
 
   const created = await service.create({
@@ -101,12 +106,7 @@ test("workflow advances with optimistic revisions and idempotency", async () => 
     kind: "propose_baseline",
     summary: "Proposed baseline",
     context: {
-      baselineProposal: {
-        coreMessage: "Reliable workflow control turns agent demos into repeatable operations.",
-        guidanceIntent: "Help product teams see when local state control makes agent work dependable.",
-        pendingQuestion: "Should the piece lead with reliability or speed?",
-        recommendedAnswer: "Lead with reliability because the selected topic is about operational use.",
-      },
+      baselineProposal: validBaselineProposal("Reliable workflow control turns agent demos into repeatable operations.", "Help product teams see when local state control makes agent work dependable.", baselineQuestion()),
     },
     idempotencyKey: "baseline-proposal-1",
   });
@@ -117,13 +117,21 @@ test("workflow advances with optimistic revisions and idempotency", async () => 
     expectedRevision: proposed.revision,
     kind: "answer_baseline_grill",
     summary: "Choose reliability",
-    context: { answer: "Lead with reliability." },
+    context: { questionId: "baseline-q1", answer: "Lead with reliability." },
     idempotencyKey: "baseline-answer-1",
   });
-
-  const baselineLocked = await service.commit({
+  const decisionId = answered.agentWork.inputs.latestDecision.id;
+  const revised = await service.commit({
     workflowId: created.workflowId,
     expectedRevision: answered.revision,
+    kind: "propose_baseline",
+    summary: "Revised baseline",
+    context: { baselineProposal: validBaselineProposal("Reliable workflow control turns agent demos into repeatable operations.", "Help product teams see when local state control makes agent work dependable.", undefined, [decisionId]) },
+    idempotencyKey: "baseline-revision-1",
+  });
+  const baselineLocked = await service.commit({
+    workflowId: created.workflowId,
+    expectedRevision: revised.revision,
     kind: "lock_baseline",
     summary: "Locked baseline",
     context: {},
@@ -131,6 +139,9 @@ test("workflow advances with optimistic revisions and idempotency", async () => 
   });
   assert.equal(baselineLocked.state, "BASELINE_LOCKED");
   assert.equal(baselineLocked.artifactRefs.filter((artifact) => artifact.kind === "baseline").length, 1);
+  const campaignIntent = baselineLocked.deliverables.find((deliverable) => deliverable.kind === "baseline");
+  assert.ok(campaignIntent);
+  assert.match(await readFile(campaignIntent.path, "utf8"), /campaignIntent/);
 
   await assert.rejects(
     service.run({
@@ -186,13 +197,15 @@ test("video workflow connects outline, master, requirements, production, and rel
   const baseline = await service.run({ workflowId: created.workflowId, expectedRevision: selected.revision, idempotencyKey: "e2e-baseline-brief" });
   const proposed = await service.commit({
     workflowId: created.workflowId, expectedRevision: baseline.revision, kind: "propose_baseline", summary: "Propose baseline",
-    context: { baselineProposal: { coreMessage: "Local state makes one useful workflow repeatable.", guidanceIntent: "Invite builders to try a controlled rerun." } }, idempotencyKey: "e2e-propose",
+    context: { baselineProposal: validBaselineProposal("Local state makes one useful workflow repeatable.", "Invite builders to try a controlled rerun.") }, idempotencyKey: "e2e-propose",
   });
   const lockedBaseline = await service.commit({ workflowId: created.workflowId, expectedRevision: proposed.revision, kind: "lock_baseline", summary: "Lock baseline", context: {}, idempotencyKey: "e2e-lock-baseline" });
   const outlining = await service.run({ workflowId: created.workflowId, expectedRevision: lockedBaseline.revision, idempotencyKey: "e2e-outline-brief" });
   assert.equal(outlining.agentWork.stage, "creative_outline");
+  const routes = await service.commit({ workflowId: created.workflowId, expectedRevision: outlining.revision, kind: "propose_creative_routes", summary: "Routes", context: { creativeRoutes: validCreativeRoutes() }, idempotencyKey: "e2e-routes" });
+  const route = await service.commit({ workflowId: created.workflowId, expectedRevision: routes.revision, kind: "select_creative_route", summary: "Choose route", context: { routeId: "route-1" }, idempotencyKey: "e2e-route" });
   const outline = await service.commit({
-    workflowId: created.workflowId, expectedRevision: outlining.revision, kind: "submit_outline_draft", summary: "Submit outline",
+    workflowId: created.workflowId, expectedRevision: route.revision, kind: "submit_outline_draft", summary: "Submit outline",
     context: { outlineDraft: validVideoOutlineDraft() }, idempotencyKey: "e2e-outline-draft",
   });
   const lockedOutline = await service.commit({ workflowId: created.workflowId, expectedRevision: outline.revision, kind: "lock_outline", summary: "Lock outline", context: {}, idempotencyKey: "e2e-lock-outline" });
@@ -200,8 +213,9 @@ test("video workflow connects outline, master, requirements, production, and rel
   assert.equal(mastering.agentWork.stage, "master_development");
   const master = await service.commit({
     workflowId: created.workflowId, expectedRevision: mastering.revision, kind: "submit_master_draft", summary: "Submit master",
-    context: { masterDraft: validVideoMasterDraft(), masterReview: { passed: true } }, idempotencyKey: "e2e-master-draft",
+    context: { masterDraft: validVideoMasterDraft(), masterReview: validMasterReview("video") }, idempotencyKey: "e2e-master-draft",
   });
+  assert.equal(master.artifactRefs.some((artifact) => artifact.kind === "master_review"), true);
   const lockedMaster = await service.commit({ workflowId: created.workflowId, expectedRevision: master.revision, kind: "lock_master", summary: "Lock master", context: {}, idempotencyKey: "e2e-lock-master" });
   const requirements = await service.run({ workflowId: created.workflowId, expectedRevision: lockedMaster.revision, idempotencyKey: "e2e-compile" });
   assert.equal(requirements.state, "REQUIREMENTS_READY");
@@ -215,7 +229,9 @@ test("video workflow connects outline, master, requirements, production, and rel
       productionResults: producing.agentWork.inputs.requirements.units.map((unit, index) => productionResult(unit.id, `artifact_production_${index + 1}`)),
     }, idempotencyKey: "e2e-production-update",
   });
+  assert.equal(updated.artifactRefs.some((artifact) => artifact.kind === "production_checkpoint"), true);
   const rendered = await service.run({ workflowId: created.workflowId, expectedRevision: updated.revision, idempotencyKey: "e2e-video-render" });
+  assert.equal(rendered.artifactRefs.some((artifact) => artifact.kind === "production_handoff"), true);
   const lockedProduction = await service.commit({
     workflowId: created.workflowId, expectedRevision: rendered.revision, kind: "lock_production", summary: "Lock production",
     context: {}, idempotencyKey: "e2e-production-lock",
@@ -251,13 +267,16 @@ test("article workflow assembles a local preview before production lock and rele
   const candidates = await service.run({ workflowId: created.workflowId, expectedRevision: matching.revision, idempotencyKey: "article-match" });
   const selected = await service.commit({ workflowId: created.workflowId, expectedRevision: candidates.revision, kind: "select_topic", summary: "Select", context: { topicId: candidates.topicMatch.candidates[0].topicId, selectedMaterials: ["https://example.com/article-topic"] }, idempotencyKey: "article-select" });
   const baseline = await service.run({ workflowId: created.workflowId, expectedRevision: selected.revision, idempotencyKey: "article-baseline-brief" });
-  const proposed = await service.commit({ workflowId: created.workflowId, expectedRevision: baseline.revision, kind: "propose_baseline", summary: "Baseline", context: { baselineProposal: { coreMessage: "Local state preserves repeatable work.", guidanceIntent: "Show one useful rerun." } }, idempotencyKey: "article-baseline" });
+  const proposed = await service.commit({ workflowId: created.workflowId, expectedRevision: baseline.revision, kind: "propose_baseline", summary: "Baseline", context: { baselineProposal: validBaselineProposal("Local state preserves repeatable work.", "Show one useful rerun.") }, idempotencyKey: "article-baseline" });
   const lockedBaseline = await service.commit({ workflowId: created.workflowId, expectedRevision: proposed.revision, kind: "lock_baseline", summary: "Lock baseline", context: {}, idempotencyKey: "article-lock-baseline" });
   const outlining = await service.run({ workflowId: created.workflowId, expectedRevision: lockedBaseline.revision, idempotencyKey: "article-outline-brief" });
-  const draft = await service.commit({ workflowId: created.workflowId, expectedRevision: outlining.revision, kind: "submit_outline_draft", summary: "Outline", context: { outlineDraft: validArticleOutlineDraft() }, idempotencyKey: "article-outline" });
+  const routes = await service.commit({ workflowId: created.workflowId, expectedRevision: outlining.revision, kind: "propose_creative_routes", summary: "Routes", context: { creativeRoutes: validCreativeRoutes() }, idempotencyKey: "article-routes" });
+  const route = await service.commit({ workflowId: created.workflowId, expectedRevision: routes.revision, kind: "select_creative_route", summary: "Choose route", context: { routeId: "route-1" }, idempotencyKey: "article-route" });
+  const draft = await service.commit({ workflowId: created.workflowId, expectedRevision: route.revision, kind: "submit_outline_draft", summary: "Outline", context: { outlineDraft: validArticleOutlineDraft() }, idempotencyKey: "article-outline" });
   const lockedOutline = await service.commit({ workflowId: created.workflowId, expectedRevision: draft.revision, kind: "lock_outline", summary: "Lock outline", context: {}, idempotencyKey: "article-lock-outline" });
   const mastering = await service.run({ workflowId: created.workflowId, expectedRevision: lockedOutline.revision, idempotencyKey: "article-master-brief" });
-  const master = await service.commit({ workflowId: created.workflowId, expectedRevision: mastering.revision, kind: "submit_master_draft", summary: "Master", context: { masterDraft: validArticleMasterDraft(), masterReview: { passed: true } }, idempotencyKey: "article-master" });
+  const master = await service.commit({ workflowId: created.workflowId, expectedRevision: mastering.revision, kind: "submit_master_draft", summary: "Master", context: { masterDraft: validArticleMasterDraft(), masterReview: validMasterReview("article") }, idempotencyKey: "article-master" });
+  assert.equal(master.artifactRefs.some((artifact) => artifact.kind === "master_review"), true);
   const lockedMaster = await service.commit({ workflowId: created.workflowId, expectedRevision: master.revision, kind: "lock_master", summary: "Lock master", context: {}, idempotencyKey: "article-lock-master" });
   const requirements = await service.run({ workflowId: created.workflowId, expectedRevision: lockedMaster.revision, idempotencyKey: "article-compile" });
   const producing = await service.run({ workflowId: created.workflowId, expectedRevision: requirements.revision, idempotencyKey: "article-produce-brief" });
@@ -266,9 +285,11 @@ test("article workflow assembles a local preview before production lock and rele
     context: { units: producing.agentWork.inputs.requirements.units.map((unit) => ({ ...unit, status: "accepted" })), productionResults: producing.agentWork.inputs.requirements.units.map((unit, index) => productionResult(unit.id, `artifact_article_${index + 1}`)) },
     idempotencyKey: "article-accept",
   });
+  assert.equal(updated.artifactRefs.some((artifact) => artifact.kind === "production_checkpoint"), true);
   const assembled = await service.run({ workflowId: created.workflowId, expectedRevision: updated.revision, idempotencyKey: "article-assemble" });
   assert.equal(assembled.artifactRefs.some((artifact) => artifact.kind === "article_document"), true);
   assert.equal(assembled.artifactRefs.some((artifact) => artifact.kind === "preview"), true);
+  assert.equal(assembled.artifactRefs.some((artifact) => artifact.kind === "production_handoff"), true);
   const lockedProduction = await service.commit({ workflowId: created.workflowId, expectedRevision: assembled.revision, kind: "lock_production", summary: "Approve preview", context: { previewAccepted: true }, idempotencyKey: "article-lock-production" });
   const packaging = await service.run({ workflowId: created.workflowId, expectedRevision: lockedProduction.revision, idempotencyKey: "article-package-brief" });
   const evidence = packaging.agentWork.inputs.allowedEvidenceArtifactIds;
@@ -279,8 +300,9 @@ test("article workflow assembles a local preview before production lock and rele
 
 function validVideoOutlineDraft() {
   return {
+    selectedRouteId: "route-1", incorporatesDecisionIds: [], pendingQuestion: null,
     creativeSpine: {
-      creativePremise: "Turn one failed rerun into a controlled loop.", storyEngine: "before-after-workflow", narrativeAnchor: "A workflow that forgets its own state.", openingMove: "Show the failed rerun.", progression: "Failure, method, proof, action.", proofPlan: "Use a recorded rerun.", endingMove: "Invite one controlled rerun.",
+      routeId: "route-1", creativePremise: "Turn one failed rerun into a controlled loop.", storyEngine: "before-after-workflow", narrativeAnchor: "A workflow that forgets its own state.", openingMove: "Show the failed rerun.", progression: "Failure, method, proof, action.", proofPlan: "Use a recorded rerun.", endingMove: "Invite one controlled rerun.",
       macroStyle: { speakerPosition: "builder", readerRelationship: "peer", promotionalTemperature: "measured", technicalDepth: "practical", emotionalArc: "friction to confidence", endingAltitude: "next action" },
     },
     macroStyleReview: { skill: "geek-product-promo-writing", scope: "macro", passed: true, findings: [] },
@@ -294,9 +316,50 @@ function validVideoOutlineDraft() {
 
 function validArticleOutlineDraft() {
   return {
-    creativeSpine: { creativePremise: "Follow one rerun until it becomes reliable.", storyEngine: "before-after-workflow", narrativeAnchor: "The missing state.", openingMove: "Start with the interruption.", progression: "Problem, mechanism, evidence, judgment.", proofPlan: "Use one observed rerun.", endingMove: "Invite a repeatable next action.", macroStyle: { speakerPosition: "builder", readerRelationship: "peer", promotionalTemperature: "measured", technicalDepth: "practical", emotionalArc: "friction to confidence", endingAltitude: "next action" } },
+    selectedRouteId: "route-1", incorporatesDecisionIds: [], pendingQuestion: null,
+    creativeSpine: { routeId: "route-1", creativePremise: "Follow one rerun until it becomes reliable.", storyEngine: "before-after-workflow", narrativeAnchor: "The missing state.", openingMove: "Start with the interruption.", progression: "Problem, mechanism, evidence, judgment.", proofPlan: "Use one observed rerun.", endingMove: "Invite a repeatable next action.", macroStyle: { speakerPosition: "builder", readerRelationship: "peer", promotionalTemperature: "measured", technicalDepth: "practical", emotionalArc: "friction to confidence", endingAltitude: "next action" } },
     macroStyleReview: { skill: "geek-product-promo-writing", scope: "macro", passed: true, findings: [] },
-    outline: { carrier: "article", openingDirection: "Start at the rerun.", sections: ["scene", "mechanism", "evidence", "judgment"].map((id) => ({ id, sectionPurpose: id, content: `${id} content`, readerShift: null, evidence: [], authorJudgment: null, transition: null, visualAsset: null })), titleDirections: ["A local rerun that keeps its state"], unsupportedClaims: [], ending: "Try one controlled rerun.", primaryCallToAction: "Start from one workflow." },
+    outline: { carrier: "article", openingDirection: "Start at the rerun.", sections: ["scene", "mechanism", "evidence", "judgment"].map((id) => ({ id, sectionPurpose: id, sceneOrAction: `${id} scene`, content: `${id} content`, readerShift: null, evidence: [], authorJudgment: null, avoid: null, transition: null, visualAsset: null })), titleDirections: ["A local rerun that keeps its state"], unsupportedClaims: [], ending: "Try one controlled rerun.", primaryCallToAction: "Start from one workflow." },
+  };
+}
+
+function validBaselineProposal(coreMessage, guidanceIntent, pendingQuestion, incorporatesDecisionIds = []) {
+  return {
+    coreMessage, guidanceIntent, incorporatesDecisionIds,
+    campaignIntent: {
+      audienceMoment: "A builder opens a rerun and finds the project context gone.", immediateBenefit: "Continue from the last confirmed constraint.", longTermBenefit: "Reuse verified project decisions across later work.", beliefToChange: "A successful run is not enough if the next run starts from zero.", proofToShow: "One query-save-verify loop.", evidenceBoundary: "Only show recorded product behavior.", narratorPosition: "A peer builder sharing a practical test.", promotionalTemperature: "Measured and specific.", primaryCallToAction: "Try one small rerun.", avoid: ["feature inventory"],
+    },
+    ...(pendingQuestion ? { pendingQuestion } : {}),
+  };
+}
+
+function baselineQuestion() {
+  return {
+    id: "baseline-q1",
+    scene: "A developer begins a new task and pastes the same project context again.",
+    tension: "The immediate cost is repetition, but the route could drift into abstract architecture.",
+    prompt: "Which benefit should lead the piece?",
+    options: [
+      { id: "instant", label: "减少重复说明", rationale: "Makes the reader recognize the friction immediately." },
+      { id: "long-term", label: "跨 Agent 复用", rationale: "Raises the long-term platform value." },
+    ],
+    recommendedOptionId: "instant",
+    affectedDeliverables: ["campaign-intent", "creative-routes", "outline"],
+  };
+}
+
+function validCreativeRoutes() {
+  return [
+    { id: "route-1", name: "The forgotten rerun", centralTension: "The task runs, but the next task forgets why.", openingScene: "A builder opens a new session and pastes the same project decisions again.", proofMethod: "Show one saved decision being recalled.", readerShift: "From repeating context to checking one reusable record.", whyThisRoute: "It makes the immediate friction visible." },
+    { id: "route-2", name: "The visible memory loop", centralTension: "Trust requires a memory a user can inspect.", openingScene: "A user checks what an agent saved after a task.", proofMethod: "Show query, save, and web verification.", readerShift: "From black-box memory to reviewable project memory.", whyThisRoute: "It foregrounds evidence." },
+  ];
+}
+
+function validMasterReview(carrier) {
+  return {
+    passed: true, evidenceBlockers: [], assetEfficiencyFindings: [],
+    writingStyle: { skill: "geek-product-promo-writing", scope: "macro-meso-micro", passed: true, findings: ["Scene leads before mechanism."] },
+    storyboardDirection: carrier === "video" ? { skill: "storyboard-direction", scope: "shot-continuity-coverage-assets", passed: true, findings: ["Continuity checked."] } : null,
   };
 }
 

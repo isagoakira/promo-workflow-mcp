@@ -19,7 +19,26 @@ export interface AgentWorkCapsule {
   };
   validationRules: string[];
   nextCommitKind: string;
+  decisionCard?: DecisionCard | undefined;
+  deliverable?: DeliverableTarget | undefined;
   guidance?: GuidanceRequest | undefined;
+}
+
+/** The human-facing part of a state-machine node. Keep this short and actionable. */
+export interface DecisionCard {
+  node: number;
+  label: string;
+  known: string[];
+  recommendation: string;
+  userDecision: string | null;
+  whyItMatters: string;
+  nextArtifact: string;
+}
+
+export interface DeliverableTarget {
+  name: string;
+  workspaceFile: string;
+  purpose: string;
 }
 
 /** Optional guidance only: the MCP service stays usable when the plugin is absent. */
@@ -35,6 +54,8 @@ export interface CreateAgentWorkCapsuleInput {
   requestedOutput: AgentWorkCapsule["requestedOutput"];
   validationRules: string[];
   nextCommitKind: string;
+  decisionCard?: DecisionCard | undefined;
+  deliverable?: DeliverableTarget | undefined;
   guidance?: GuidanceRequest | undefined;
 }
 
@@ -47,6 +68,8 @@ export function createAgentWorkCapsule(input: CreateAgentWorkCapsuleInput): Agen
     requestedOutput: input.requestedOutput,
     validationRules: input.validationRules,
     nextCommitKind: input.nextCommitKind,
+    ...(input.decisionCard ? { decisionCard: input.decisionCard } : {}),
+    ...(input.deliverable ? { deliverable: input.deliverable } : {}),
     ...(input.guidance ? { guidance: input.guidance } : {}),
   };
 }

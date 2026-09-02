@@ -27,7 +27,48 @@ export interface PositioningBaseline {
   topicId: string;
   coreMessage: string;
   guidanceIntent: string;
+  campaignIntent: CampaignIntentCard;
   confirmedAt: string;
+}
+
+/** A compact, user-readable contract for what the campaign is trying to change. */
+export interface CampaignIntentCard {
+  audienceMoment: string;
+  immediateBenefit: string;
+  longTermBenefit: string;
+  beliefToChange: string;
+  proofToShow: string;
+  evidenceBoundary: string;
+  narratorPosition: string;
+  promotionalTemperature: string;
+  primaryCallToAction: string;
+  avoid: readonly string[];
+}
+
+export interface ScenarioGrillOption {
+  id: string;
+  label: string;
+  rationale: string;
+}
+
+/** One consequential, concrete choice. It must say what changes after the answer. */
+export interface ScenarioGrillQuestion {
+  id: string;
+  scene: string;
+  tension: string;
+  prompt: string;
+  options: readonly ScenarioGrillOption[];
+  recommendedOptionId: string;
+  affectedDeliverables: readonly string[];
+}
+
+export interface DecisionLedgerEntry {
+  id: string;
+  stage: "baseline" | "outline" | "master";
+  question: ScenarioGrillQuestion;
+  answer: string;
+  answeredAt: string;
+  requiresRevisionOf: string;
 }
 
 export interface BaselineAlignmentCapsule {
@@ -39,9 +80,9 @@ export interface BaselineAlignmentCapsule {
   currentRecommendation: {
     coreMessage: string;
     guidanceIntent: string;
+    campaignIntent: CampaignIntentCard;
   };
-  pendingQuestion: string;
-  recommendedAnswer: string;
+  pendingQuestion: ScenarioGrillQuestion | null;
 }
 
 export type BaselineCommit =
@@ -147,6 +188,7 @@ export interface MacroStyleFrame {
 }
 
 export interface CreativeSpine {
+  routeId: string;
   creativePremise: string;
   storyEngine: string;
   narrativeAnchor: string;
@@ -155,6 +197,22 @@ export interface CreativeSpine {
   proofPlan: string;
   endingMove: string;
   macroStyle: MacroStyleFrame;
+}
+
+/** Mutually exclusive story directions offered before the detailed outline. */
+export interface CreativeRoute {
+  id: string;
+  name: string;
+  centralTension: string;
+  openingScene: string;
+  proofMethod: string;
+  readerShift: string;
+  whyThisRoute: string;
+}
+
+export interface CreativeRouteSelection {
+  routeId: string;
+  selectedAt: string;
 }
 
 export interface VideoOutlineSegment {
@@ -173,10 +231,12 @@ export interface VideoOutlineSegment {
 export interface ArticleOutlineSection {
   id: string;
   sectionPurpose: string;
+  sceneOrAction: string;
   content: string;
   readerShift: string | null;
   evidence: readonly string[];
   authorJudgment: string | null;
+  avoid: string | null;
   transition: string | null;
   visualAsset: string | null;
 }

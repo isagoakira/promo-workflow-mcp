@@ -17,6 +17,7 @@ const baseline = {
 };
 
 const creativeSpine = {
+  routeId: "route-1",
   creativePremise: "Follow one fragile agent run until it becomes repeatable.",
   storyEngine: "before-after-workflow",
   narrativeAnchor: "A release that failed when its state disappeared.",
@@ -55,6 +56,7 @@ test("creates an agent capsule for a budgeted creative outline", () => {
       beatRange: [4, 4],
       targetGrillQuestionRange: [2, 3],
     },
+    selectedRoute: creativeRoute(),
   });
 
   assert.equal(capsule.stage, "creative_outline");
@@ -74,6 +76,9 @@ test("accepts a video outline only when beats and final duration match its budge
     targetGrillQuestionRange: [2, 3],
   };
   const draft = readCreativeOutlineDraft({
+    selectedRouteId: "route-1",
+    incorporatesDecisionIds: [],
+    pendingQuestion: null,
     creativeSpine,
     macroStyleReview,
     outline: {
@@ -94,6 +99,9 @@ test("accepts a video outline only when beats and final duration match its budge
   assert.equal(draft.outline.carrier, "video");
 
   assert.throws(() => readCreativeOutlineDraft({
+    selectedRouteId: "route-1",
+    incorporatesDecisionIds: [],
+    pendingQuestion: null,
     creativeSpine,
     macroStyleReview,
     outline: {
@@ -121,6 +129,9 @@ test("requires article section purposes to be distinct and obeys Grill caps", ()
     articleSection("judgment", "State why this matters."),
   ];
   const draft = readCreativeOutlineDraft({
+    selectedRouteId: "route-1",
+    incorporatesDecisionIds: [],
+    pendingQuestion: null,
     creativeSpine,
     macroStyleReview,
     outline: {
@@ -136,6 +147,9 @@ test("requires article section purposes to be distinct and obeys Grill caps", ()
   assert.equal(draft.outline.carrier, "article");
 
   assert.throws(() => readCreativeOutlineDraft({
+    selectedRouteId: "route-1",
+    incorporatesDecisionIds: [],
+    pendingQuestion: null,
     creativeSpine,
     macroStyleReview,
     outline: {
@@ -172,11 +186,24 @@ function articleSection(id, content) {
   return {
     id,
     sectionPurpose: id,
+    sceneOrAction: `${id} action`,
     content,
     readerShift: null,
     evidence: [],
     authorJudgment: null,
     transition: null,
     visualAsset: null,
+  };
+}
+
+function creativeRoute() {
+  return {
+    id: "route-1",
+    name: "Failed rerun",
+    centralTension: "A new run loses the prior decision.",
+    openingScene: "A builder restates project constraints.",
+    proofMethod: "Show a recovered record.",
+    readerShift: "Move from repetition to recall.",
+    whyThisRoute: "It makes the immediate cost visible.",
   };
 }

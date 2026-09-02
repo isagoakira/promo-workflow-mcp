@@ -1,7 +1,17 @@
 import { randomUUID } from "node:crypto";
 
 import type { ArticleManuscriptMaster, ArticlePlatformBranch, PlatformProfile, WorkflowState } from "@promo-workflow/contracts";
-import { CONTENT_BUDGETS, type ContentBudget, type ContentMaster, type LockedCreativeOutline, type ProductionLockedCapsule, type ProductionUnit } from "@promo-workflow/contracts";
+import {
+  CONTENT_BUDGETS,
+  type ContentBudget,
+  type ContentMaster,
+  type CreativeRoute,
+  type LockedCreativeOutline,
+  type MasterReview,
+  type ProductionLockedCapsule,
+  type ProductionUnit,
+  type ScenarioGrillQuestion,
+} from "@promo-workflow/contracts";
 import { buildArticleAssemblerOutput, type AcceptedArticleAssetResult } from "./article-assembler-adapter.js";
 
 import { createAgentWorkCapsule } from "./agent-work.js";
@@ -19,6 +29,7 @@ import { createReleasePackagingBrief, getProductionArtifactIds, readReleasePacka
 import { createFetchBrief, TopicMatchingEngine } from "./selection/matcher.js";
 import type { SelectionEngine } from "./selection/types.js";
 import { JsonWorkflowStore } from "./store.js";
+import { WorkspaceDeliverables, type WorkspaceDeliverableRef } from "./workspace-deliverables.js";
 import type {
   PendingAction,
   WorkflowCarrier,
@@ -45,6 +56,8 @@ const COMMIT_TRANSITIONS = {
   propose_baseline: { from: "ALIGNING_BASELINE", to: "ALIGNING_BASELINE", event: "baseline_proposed" },
   answer_baseline_grill: { from: "ALIGNING_BASELINE", to: "ALIGNING_BASELINE", event: "baseline_grill_answered" },
   lock_baseline: { from: "ALIGNING_BASELINE", to: "BASELINE_LOCKED", event: "baseline_locked" },
+  propose_creative_routes: { from: "ALIGNING_OUTLINE", to: "ALIGNING_OUTLINE", event: "creative_routes_proposed" },
+  select_creative_route: { from: "ALIGNING_OUTLINE", to: "ALIGNING_OUTLINE", event: "creative_route_selected" },
   submit_outline_draft: { from: "ALIGNING_OUTLINE", to: "ALIGNING_OUTLINE", event: "outline_draft_submitted" },
   answer_outline_grill: { from: "ALIGNING_OUTLINE", to: "ALIGNING_OUTLINE", event: "outline_grill_answered" },
   lock_outline: { from: "ALIGNING_OUTLINE", to: "OUTLINE_LOCKED", event: "outline_locked" },
@@ -91,6 +104,7 @@ export class WorkflowService {
     private readonly selectionEngine: SelectionEngine = new TopicMatchingEngine(),
     private readonly cutWorkbenchBridge: CutWorkbenchBridge = unavailableCutWorkbenchBridge,
     private readonly vectCutBridge: VectCutBridge = unavailableVectCutBridge,
+    private readonly workspace?: WorkspaceDeliverables,
   ) {}
 
   async create(input: CreateWorkflowInput): Promise<WorkflowSnapshot> {
@@ -115,6 +129,7 @@ export class WorkflowService {
       idempotency: {},
     };
     appendEvent(record, "workflow_created", "Workflow created; run the matching step next.");
+    await this.syncWorkspace(record);
     const snapshot = await this.toSnapshot(record);
     record.idempotency[input.idempotencyKey] = snapshot;
     data.workflows[id] = record;
@@ -164,9 +179,9 @@ export class WorkflowService {
       record.context = { ...record.context, agentWork };
       record.summary = "已生成基调对齐任务；等待 Agent 提交宣传核心和用户引导意图。";
     } else if (record.state === "BASELINE_LOCKED") {
-      const agentWork = await this.createCreativeOutlineBrief(record);
+      const agentWork = await this.createCreativeRouteBrief(record);
       record.context = { ...record.context, agentWork };
-      record.summary = "已生成创意主线与大纲任务；等待 Agent 提交可校验的大纲草案。";
+      record.summary = "已生成 2–3 条场景化创意路线；先由用户选定一条，再进入大纲细化。";
     } else if (record.state === "OUTLINE_LOCKED") {
       const agentWork = await this.createMasterDevelopmentBrief(record);
       record.context = { ...record.context, agentWork };
@@ -175,7 +190,13 @@ export class WorkflowService {
       const requirements = await this.compileRequirements(record);
       const artifact = await this.artifacts.write({
         kind: "requirement_set",
-        content: requirements,
+        content: {
+          ...requirements,
+          derivedFrom: {
+            contentMasterArtifactId: requireText(record.context.contentMasterArtifactId, "contentMasterArtifactId"),
+            derivedAt: new Date().toISOString(),
+          },
+        },
         parentArtifactIds: artifactIdsFor(record.context),
       });
       record.context = withArtifact(record.context, artifact, { requirementSetArtifactId: artifact.artifactId });
@@ -229,6 +250,12 @@ export class WorkflowService {
       if (record.carrier === "article") {
         const output = await this.assembleArticle(record, units, results);
         record.context = { ...record.context, ...output };
+        const handoff = await this.artifacts.write({
+          kind: "production_handoff",
+          content: { backend: "article_assembler", checkpointArtifactId: record.context.productionCheckpointArtifactId, outputArtifacts: record.context.articleProductionArtifacts, handedOffAt: new Date().toISOString() },
+          parentArtifactIds: artifactIdsFor(record.context), revision: record.revision + 1,
+        });
+        record.context = withArtifact(record.context, handoff, { productionHandoffArtifactId: handoff.artifactId });
         record.summary = "已生成文章内容块、素材清单与本地预览；等待一次完整预览确认。";
       } else {
         const bridgeResult = await this.runVideoBridge(record, results);
@@ -246,9 +273,20 @@ export class WorkflowService {
             vectcutResult: bridgeResult,
             vectcutDraftArtifactId: artifact.artifactId,
           });
+          const handoff = await this.artifacts.write({
+            kind: "production_handoff",
+            content: { backend: "vectcut", checkpointArtifactId: record.context.productionCheckpointArtifactId, result: bridgeResult, handedOffAt: new Date().toISOString() },
+            parentArtifactIds: artifactIdsFor(record.context), revision: record.revision + 1,
+          });
+          record.context = withArtifact(record.context, handoff, { productionHandoffArtifactId: handoff.artifactId });
           record.summary = "VectCut 已生成可编辑草稿并导入 SRT；请在剪映/CapCut 审核，需要改动时先回退对应制作单元。";
         } else {
-          record.context = { ...record.context, cutWorkbenchResult: bridgeResult };
+          const handoff = await this.artifacts.write({
+            kind: "production_handoff",
+            content: { backend: "cut_workbench", checkpointArtifactId: record.context.productionCheckpointArtifactId, result: bridgeResult, handedOffAt: new Date().toISOString() },
+            parentArtifactIds: artifactIdsFor(record.context), revision: record.revision + 1,
+          });
+          record.context = withArtifact(record.context, handoff, { cutWorkbenchResult: bridgeResult, productionHandoffArtifactId: handoff.artifactId });
           record.summary = "Cut Workbench 已返回已验证的视频成品引用；等待最终锁定。";
         }
       }
@@ -268,6 +306,7 @@ export class WorkflowService {
     record.revision += 1;
     record.updatedAt = new Date().toISOString();
     appendEvent(record, "automatic_step", record.summary);
+    await this.syncWorkspace(record);
     const snapshot = await this.toSnapshot(record);
     record.idempotency[input.idempotencyKey] = snapshot;
     await this.store.write(data);
@@ -308,28 +347,56 @@ export class WorkflowService {
           ...without(input.context, ["fetchedTopics", "artifactRefs", "fetchedTopicsArtifactId"]),
           fetchedTopicsArtifactId: artifact.artifactId,
         });
+      } else if (input.kind === "select_topic") {
+        const topicMatch = await this.topicMatchFor(record.context);
+        const topicId = requireText(input.context.topicId, "topicId");
+        const topic = topicMatch?.candidates.find((candidate) => candidate.topicId === topicId);
+        if (!topic) throw new Error(`Unknown topic ${topicId}.`);
+        const selectedMaterials = readStringArray(input.context.selectedMaterials, "selectedMaterials");
+        const artifact = await this.artifacts.write({
+          kind: "selected_topic",
+          content: { topic, selectedMaterials, selectedAt: new Date().toISOString() },
+          parentArtifactIds: artifactIdsFor(record.context),
+          revision: record.revision + 1,
+        });
+        record.context = withArtifact(record.context, artifact, {
+          ...without(input.context, ["artifactRefs", "topicId", "selectedMaterials"]),
+          topicId,
+          selectedMaterials,
+          selectedTopicArtifactId: artifact.artifactId,
+        });
       } else if (input.kind === "propose_baseline") {
         const proposal = readBaselineProposal(input.context.baselineProposal);
+        assertDecisionsIncorporated(proposal.incorporatesDecisionIds, unresolvedDecisionIds(record.context));
         record.context = {
           ...record.context,
           ...without(input.context, ["baselineProposal"]),
           baselineProposal: proposal,
+          unresolvedDecisionIds: [],
         };
       } else if (input.kind === "answer_baseline_grill") {
-        if (typeof input.context.answer !== "string" || !input.context.answer.trim()) {
-          throw new Error("answer_baseline_grill requires a non-empty context.answer.");
-        }
-        record.context = {
-          ...record.context,
+        const proposal = baselineProposalFor(record.context);
+        if (!proposal?.pendingQuestion) throw new Error("No baseline scenario Grill question is pending.");
+        const decision = readScenarioDecision(input.context, proposal.pendingQuestion, "baseline");
+        const artifact = await this.artifacts.write({
+          kind: "decision_ledger", content: decision, parentArtifactIds: artifactIdsFor(record.context), revision: record.revision + 1,
+        });
+        record.context = withArtifact(record.context, artifact, {
           baselineGrillCount: baselineGrillCount(record.context) + 1,
-        };
+          unresolvedDecisionIds: [...unresolvedDecisionIds(record.context), decision.id],
+          latestDecisionLedgerArtifactId: artifact.artifactId,
+          agentWork: createBaselineRevisionBrief(proposal, decision),
+        });
+        delete record.context.baselineProposal;
       } else if (input.kind === "lock_baseline") {
+        assertNoUnresolvedDecisions(record.context);
         const proposal = readBaselineProposal(input.context.baselineProposal ?? record.context.baselineProposal);
         const artifact = await this.artifacts.write({
           kind: "baseline",
           content: {
             coreMessage: proposal.coreMessage,
             guidanceIntent: proposal.guidanceIntent,
+            campaignIntent: proposal.campaignIntent,
             topicId: record.context.topicId,
             confirmedAt: new Date().toISOString(),
           },
@@ -341,9 +408,30 @@ export class WorkflowService {
         });
         delete record.context.baselineProposal;
         delete record.context.baselineGrillCount;
+        delete record.context.unresolvedDecisionIds;
+      } else if (input.kind === "propose_creative_routes") {
+        const routes = readCreativeRoutes(input.context.creativeRoutes);
+        const artifact = await this.artifacts.write({
+          kind: "creative_routes", content: { routes, proposedAt: new Date().toISOString() }, parentArtifactIds: artifactIdsFor(record.context), revision: record.revision + 1,
+        });
+        record.context = withArtifact(record.context, artifact, { creativeRoutesArtifactId: artifact.artifactId });
+      } else if (input.kind === "select_creative_route") {
+        const routes = await this.creativeRoutesFor(record.context);
+        const routeId = requireText(input.context.routeId, "routeId");
+        const selectedRoute = routes.find((route) => route.id === routeId);
+        if (!selectedRoute) throw new Error(`Unknown creative route ${routeId}.`);
+        const artifact = await this.artifacts.write({
+          kind: "creative_route_selection",
+          content: { route: selectedRoute, selectedAt: new Date().toISOString() }, parentArtifactIds: artifactIdsFor(record.context), revision: record.revision + 1,
+        });
+        const nextContext = withArtifact(record.context, artifact, { selectedCreativeRouteArtifactId: artifact.artifactId });
+        record.context = { ...nextContext, agentWork: await this.createCreativeOutlineBrief(record, selectedRoute) };
       } else if (input.kind === "submit_outline_draft") {
         const budget = await this.budgetFor(record.context, record.carrier);
         const draft = readCreativeOutlineDraft(input.context.outlineDraft, budget);
+        const selectedRoute = await this.selectedCreativeRouteFor(record.context);
+        if (draft.selectedRouteId !== selectedRoute.id) throw new Error("Outline draft must use the user-selected creative route.");
+        assertDecisionsIncorporated(draft.incorporatesDecisionIds, unresolvedDecisionIds(record.context));
         const artifact = await this.artifacts.write({
           kind: "creative_outline_draft",
           content: draft,
@@ -352,16 +440,28 @@ export class WorkflowService {
         record.context = withArtifact(record.context, artifact, {
           outlineDraftArtifactId: artifact.artifactId,
           outlineGrillCount: 0,
+          unresolvedDecisionIds: [],
         });
       } else if (input.kind === "answer_outline_grill") {
-        if (typeof input.context.answer !== "string" || !input.context.answer.trim()) {
-          throw new Error("answer_outline_grill requires a non-empty context.answer.");
-        }
+        const draft = await this.outlineDraftFor(record.context);
+        if (!draft.pendingQuestion) throw new Error("No outline scenario Grill question is pending.");
+        const decision = readScenarioDecision(input.context, draft.pendingQuestion, "outline");
         const budget = await this.budgetFor(record.context, record.carrier);
         assertOutlineGrillCapacity(outlineGrillCount(record.context), budget);
-        record.context = { ...record.context, outlineGrillCount: outlineGrillCount(record.context) + 1 };
+        const artifact = await this.artifacts.write({
+          kind: "decision_ledger", content: decision, parentArtifactIds: artifactIdsFor(record.context), revision: record.revision + 1,
+        });
+        const selectedRoute = await this.selectedCreativeRouteFor(record.context);
+        record.context = withArtifact(record.context, artifact, {
+          outlineGrillCount: outlineGrillCount(record.context) + 1,
+          unresolvedDecisionIds: [...unresolvedDecisionIds(record.context), decision.id],
+          latestDecisionLedgerArtifactId: artifact.artifactId,
+          agentWork: await this.createCreativeOutlineBrief(record, selectedRoute, draft, decision),
+        });
       } else if (input.kind === "lock_outline") {
+        assertNoUnresolvedDecisions(record.context);
         const draft = await this.outlineDraftFor(record.context);
+        if (draft.pendingQuestion) throw new Error("Answer the pending outline scenario Grill question and submit a revised outline before lock.");
         if (!draft.macroStyleReview.passed) throw new Error("Cannot lock an outline until macro style review passes.");
         const budget = await this.budgetFor(record.context, record.carrier);
         const artifact = await this.artifacts.write({
@@ -377,28 +477,53 @@ export class WorkflowService {
         record.context = withArtifact(record.context, artifact, { creativeOutlineArtifactId: artifact.artifactId });
         delete record.context.outlineDraftArtifactId;
         delete record.context.outlineGrillCount;
+        delete record.context.unresolvedDecisionIds;
       } else if (input.kind === "submit_master_draft") {
         const creativeOutline = await this.creativeOutlineFor(record.context);
         const master = readMasterDraft(input.context.masterDraft);
         const validation = validateMasterDraft(master, { budget: creativeOutline.budget });
         if (!validation.passed) throw new Error(`Master draft is invalid: ${validation.errors.join(" ")}`);
-        if (!isPassedReview(input.context.masterReview)) throw new Error("submit_master_draft requires a passed context.masterReview.");
+        const review = readMasterReview(input.context.masterReview, master.carrier);
+        if (!review.passed) throw new Error("submit_master_draft requires a passed context.masterReview.");
+        assertDecisionsIncorporated(readStringArrayOrEmpty(input.context.incorporatesDecisionIds, "incorporatesDecisionIds"), unresolvedDecisionIds(record.context));
+        const pendingQuestion = optionalScenarioQuestion(input.context.masterGrillQuestion, "masterGrillQuestion");
+        const reviewArtifact = await this.artifacts.write({
+          kind: "master_review",
+          content: {
+            review,
+            appliesTo: { carrier: master.carrier, workingTitle: master.carrier === "video" ? master.workingTitle : master.title },
+            reviewedAt: new Date().toISOString(),
+          },
+          parentArtifactIds: artifactIdsFor(record.context),
+          revision: record.revision + 1,
+        });
+        const afterReview = withArtifact(record.context, reviewArtifact, { masterReviewArtifactId: reviewArtifact.artifactId });
         const artifact = await this.artifacts.write({
           kind: "content_master_draft",
-          content: { master, review: input.context.masterReview, warnings: validation.warnings },
-          parentArtifactIds: artifactIdsFor(record.context),
+          content: { master, review, warnings: validation.warnings, pendingQuestion, incorporatesDecisionIds: readStringArrayOrEmpty(input.context.incorporatesDecisionIds, "incorporatesDecisionIds") },
+          parentArtifactIds: artifactIdsFor(afterReview),
         });
-        record.context = withArtifact(record.context, artifact, { masterDraftArtifactId: artifact.artifactId, masterGrillCount: 0 });
+        record.context = withArtifact(afterReview, artifact, { masterDraftArtifactId: artifact.artifactId, masterGrillCount: 0, unresolvedDecisionIds: [] });
       } else if (input.kind === "answer_master_grill") {
-        if (typeof input.context.answer !== "string" || !input.context.answer.trim()) {
-          throw new Error("answer_master_grill requires a non-empty context.answer.");
-        }
+        const draft = await this.masterDraftFor(record.context);
+        if (!draft.pendingQuestion) throw new Error("No master scenario Grill question is pending.");
+        const decision = readScenarioDecision(input.context, draft.pendingQuestion, "master");
         const creativeOutline = await this.creativeOutlineFor(record.context);
         const limit = masterGrillCap(creativeOutline.budget);
         if (masterGrillCount(record.context) >= limit) throw new Error(`Master Grill limit reached (${limit} questions).`);
-        record.context = { ...record.context, masterGrillCount: masterGrillCount(record.context) + 1 };
+        const artifact = await this.artifacts.write({
+          kind: "decision_ledger", content: decision, parentArtifactIds: artifactIdsFor(record.context), revision: record.revision + 1,
+        });
+        record.context = withArtifact(record.context, artifact, {
+          masterGrillCount: masterGrillCount(record.context) + 1,
+          unresolvedDecisionIds: [...unresolvedDecisionIds(record.context), decision.id],
+          latestDecisionLedgerArtifactId: artifact.artifactId,
+          agentWork: createMasterRevisionBrief(creativeOutline, draft.master, decision),
+        });
       } else if (input.kind === "lock_master") {
+        assertNoUnresolvedDecisions(record.context);
         const draft = await this.masterDraftFor(record.context);
+        if (draft.pendingQuestion) throw new Error("Answer the pending master scenario Grill question and submit a revised master before lock.");
         const creativeOutline = await this.creativeOutlineFor(record.context);
         const artifact = await this.artifacts.write({
           kind: "content_master",
@@ -414,6 +539,7 @@ export class WorkflowService {
         record.context = withArtifact(record.context, artifact, { contentMasterArtifactId: artifact.artifactId });
         delete record.context.masterDraftArtifactId;
         delete record.context.masterGrillCount;
+        delete record.context.unresolvedDecisionIds;
       } else if (input.kind === "update_production_units") {
         const units = readProductionUnits(input.context.units);
         const plan = await this.productionPlanFor(record.context);
@@ -423,12 +549,23 @@ export class WorkflowService {
           currentUnits: units,
           results: readProductionResults(input.context.productionResults),
         });
-        record.context = {
-          ...record.context,
+        const checkpoint = await this.artifacts.write({
+          kind: "production_checkpoint",
+          content: {
+            plannedUnits: plan.units,
+            currentUnits: units,
+            acceptanceResults: results,
+            updatedAt: new Date().toISOString(),
+          },
+          parentArtifactIds: artifactIdsFor(record.context),
+          revision: record.revision + 1,
+        });
+        record.context = withArtifact(record.context, checkpoint, {
           ...without(input.context, ["units", "productionResults", "artifactRefs"]),
           productionUnits: units,
           productionResults: results,
-        };
+          productionCheckpointArtifactId: checkpoint.artifactId,
+        });
         delete record.context.productionCapabilityGap;
         delete record.context.cutWorkbenchResult;
         delete record.context.vectcutResult;
@@ -489,6 +626,7 @@ export class WorkflowService {
       appendEvent(record, transition.event, input.summary);
     }
 
+    await this.syncWorkspace(record);
     const snapshot = await this.toSnapshot(record);
     record.idempotency[input.idempotencyKey] = snapshot;
     await this.store.write(data);
@@ -534,7 +672,54 @@ export class WorkflowService {
     return CONTENT_BUDGETS[carrier][tier ?? "standard"];
   }
 
-  private async createCreativeOutlineBrief(record: WorkflowRecord) {
+  private async createCreativeRouteBrief(record: WorkflowRecord) {
+    const baseline = await this.baselineFor(record.context);
+    return createAgentWorkCapsule({
+      stage: "creative_outline",
+      inputs: {
+        topicId: requireText(record.context.topicId, "topicId"),
+        baseline,
+        selectedMaterials: readStringArray(record.context.selectedMaterials, "selectedMaterials"),
+        productProfile: record.context.productProfile,
+      },
+      constraints: [
+        "Propose exactly 2-3 mutually exclusive creative routes before writing an outline.",
+        "Each route begins in a specific reader scene, names the tension, and explains how it will prove the point.",
+        "Do not write a generic product-feature sequence or a finished manuscript at this stage.",
+      ],
+      requestedOutput: {
+        description: "2-3 scene-led creative routes for the user to choose from.",
+        fields: ["creativeRoutes"],
+      },
+      validationRules: [
+        "Each route requires id, name, centralTension, openingScene, proofMethod, readerShift, and whyThisRoute.",
+        "Submit through promo_commit(kind=propose_creative_routes).",
+      ],
+      nextCommitKind: "propose_creative_routes",
+      decisionCard: {
+        node: 3,
+        label: "创意路线选择",
+        known: ["宣传意图已锁定。"],
+        recommendation: "先把同一主张拆成不同的真实场景，选最能让目标读者代入的一条。",
+        userDecision: "从 2-3 条路线中选择一条。",
+        whyItMatters: "路线一旦选定，后续 Grill 只细化它，不再让大纲在多个方向间摇摆。",
+        nextArtifact: "03-creative-outline/creative-routes.json",
+      },
+      deliverable: {
+        name: "creative routes",
+        workspaceFile: "03-creative-outline/creative-routes.json",
+        purpose: "用户已比较过的创意方向及其选择依据。",
+      },
+      guidance: { plugin: "promo-workflow-guidance", skills: ["promo-writing-supervision"] },
+    });
+  }
+
+  private async createCreativeOutlineBrief(
+    record: WorkflowRecord,
+    selectedRoute: CreativeRoute,
+    priorDraft?: ReturnType<typeof readCreativeOutlineDraft>,
+    decision?: Record<string, unknown>,
+  ) {
     const baseline = await this.baselineFor(record.context);
     return createCreativeOutlineBrief({
       topicId: requireText(record.context.topicId, "topicId"),
@@ -543,7 +728,22 @@ export class WorkflowService {
       productProfile: record.context.productProfile,
       budget: await this.budgetFor(record.context, record.carrier),
       recommendedStoryEngine: optionalText(record.context.recommendedStoryEngine),
+      selectedRoute,
+      ...(priorDraft ? { priorDraft } : {}),
+      ...(decision ? { latestDecision: decision } : {}),
     });
+  }
+
+  private async creativeRoutesFor(context: Record<string, unknown>): Promise<CreativeRoute[]> {
+    const content = await this.readArtifactContent(context.creativeRoutesArtifactId, "creative_routes");
+    if (!isRecord(content) || !Array.isArray(content.routes)) throw new Error("Creative-routes artifact is invalid.");
+    return readCreativeRoutes(content.routes);
+  }
+
+  private async selectedCreativeRouteFor(context: Record<string, unknown>): Promise<CreativeRoute> {
+    const content = await this.readArtifactContent(context.selectedCreativeRouteArtifactId, "creative_route_selection");
+    if (!isRecord(content) || !isRecord(content.route)) throw new Error("A creative route must be selected before drafting the outline.");
+    return readCreativeRoute(content.route, "selected route");
   }
 
   private async createMasterDevelopmentBrief(record: WorkflowRecord) {
@@ -567,10 +767,15 @@ export class WorkflowService {
     return await this.readArtifactContent(context.creativeOutlineArtifactId, "creative_outline") as LockedCreativeOutline;
   }
 
-  private async masterDraftFor(context: Record<string, unknown>): Promise<{ master: ContentMaster; review: Record<string, unknown> }> {
+  private async masterDraftFor(context: Record<string, unknown>): Promise<{ master: ContentMaster; review: MasterReview; pendingQuestion: ScenarioGrillQuestion | null }> {
     const content = await this.readArtifactContent(context.masterDraftArtifactId, "content_master_draft");
     if (!isRecord(content) || !isRecord(content.review)) throw new Error("Master draft artifact is invalid.");
-    return { master: readMasterDraft(content.master), review: content.review };
+    const master = readMasterDraft(content.master);
+    return {
+      master,
+      review: readMasterReview(content.review, master.carrier),
+      pendingQuestion: optionalScenarioQuestion(content.pendingQuestion, "content_master_draft.pendingQuestion"),
+    };
   }
 
   private async contentMasterFor(context: Record<string, unknown>) {
@@ -792,9 +997,24 @@ export class WorkflowService {
         baselineProposal,
         baselineGrillCount: baselineGrillCount(record.context),
       } : {}),
+      deliverables: workspaceDeliverablesFor(record.context),
+      status: statusFor(record.state),
       artifactRefs: artifactRefsFor(record.context),
       pendingAction: pendingActionForRecord(record),
     };
+  }
+
+  private async syncWorkspace(record: WorkflowRecord): Promise<void> {
+    if (!this.workspace) return;
+    const deliverables = await this.workspace.sync({
+      workflowId: record.id,
+      carrier: record.carrier,
+      state: record.state,
+      revision: record.revision,
+      summary: record.summary,
+      artifactRefs: artifactRefsFor(record.context),
+    });
+    record.context = { ...record.context, workspaceDeliverables: deliverables };
   }
 
   private async topicMatchFor(context: Record<string, unknown>): Promise<WorkflowSnapshot["topicMatch"]> {
@@ -843,15 +1063,15 @@ function pendingActionFor(state: WorkflowState): PendingAction | null {
     case "AWAITING_SELECTION":
       return action("select_topic", "commit", "从 topicMatch.candidates 中选择一项，以 kind=select_topic 提交 topicId 和 selectedMaterials。");
     case "TOPIC_LOCKED":
-      return action("begin_baseline", "run", "Run baseline alignment.");
+      return action("begin_baseline", "run", "生成以读者场景为起点的宣传意图任务。");
     case "ALIGNING_BASELINE":
-      return action("align_baseline", "agent_work", "按 agentWork 提交基调提案；如存在高影响问题，逐次提交 answer_baseline_grill；确认后使用 lock_baseline 锁定。 ");
+      return action("align_baseline", "agent_work", "查看决策卡。先提交场景化宣传意图；如有待答问题，提交 answer_baseline_grill 后必须回填一版吸收该决定的修订稿，才能锁定。");
     case "BASELINE_LOCKED":
-      return action("begin_outline", "run", "Run creative-outline alignment.");
+      return action("begin_outline", "run", "生成 2–3 条场景化创意路线。");
     case "ALIGNING_OUTLINE":
-      return action("submit_outline_draft", "agent_work", "按 agentWork 提交 creativeSpine、carrier outline 与 macroStyleReview；必要时可逐次 answer_outline_grill，确认后 lock_outline。");
+      return action("align_outline", "agent_work", "先提交 2–3 条 creativeRoutes 并选择一条；随后围绕该路线提交大纲。每个已回答 Grill 都必须产出一版修订大纲。");
     case "OUTLINE_LOCKED":
-      return action("begin_master", "run", "Run master development.");
+      return action("begin_master", "run", "生成完整主稿/分镜扩写任务。");
     case "ALIGNING_MASTER":
       return action("submit_master_draft", "agent_work", "按 agentWork 提交完整 master 与通过的 review；必要时可逐次 answer_master_grill，确认后 lock_master。");
     case "MASTER_LOCKED":
@@ -922,6 +1142,42 @@ function agentWorkFor(context: Record<string, unknown>) {
 function artifactRefsFor(context: Record<string, unknown>): ArtifactRef[] {
   const value = context.artifactRefs;
   return Array.isArray(value) ? value.filter(isArtifactRef) : [];
+}
+
+function workspaceDeliverablesFor(context: Record<string, unknown>): WorkspaceDeliverableRef[] {
+  const value = context.workspaceDeliverables;
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is WorkspaceDeliverableRef => isRecord(item)
+    && typeof item.artifactId === "string"
+    && typeof item.kind === "string"
+    && typeof item.path === "string"
+    && typeof item.versionPath === "string");
+}
+
+function statusFor(state: WorkflowState): WorkflowSnapshot["status"] {
+  const status: Record<WorkflowState, WorkflowSnapshot["status"]> = {
+    NEEDS_PROFILE: { node: 1, label: "选材", userFacingState: "等待产品卡" },
+    READY: { node: 1, label: "选材", userFacingState: "准备抓取" },
+    FETCHING: { node: 1, label: "选材", userFacingState: "等待材料卡" },
+    MATCHING: { node: 1, label: "选材", userFacingState: "正在匹配" },
+    AWAITING_SELECTION: { node: 1, label: "选材", userFacingState: "等待选题" },
+    TOPIC_LOCKED: { node: 2, label: "宣传意图", userFacingState: "准备细化" },
+    ALIGNING_BASELINE: { node: 2, label: "宣传意图", userFacingState: "场景化对齐中" },
+    BASELINE_LOCKED: { node: 3, label: "创意与大纲", userFacingState: "准备提出路线" },
+    GENERATING_CREATIVE: { node: 3, label: "创意与大纲", userFacingState: "生成中" },
+    ALIGNING_OUTLINE: { node: 3, label: "创意与大纲", userFacingState: "路线选择与场景细化中" },
+    OUTLINE_LOCKED: { node: 4, label: "主稿", userFacingState: "准备扩写" },
+    GENERATING_MASTER: { node: 4, label: "主稿", userFacingState: "生成中" },
+    ALIGNING_MASTER: { node: 4, label: "主稿", userFacingState: "扩写与审校中" },
+    MASTER_LOCKED: { node: 5, label: "素材需求", userFacingState: "准备编译" },
+    COMPILING_REQUIREMENTS: { node: 5, label: "素材需求", userFacingState: "编译中" },
+    REQUIREMENTS_READY: { node: 6, label: "制作", userFacingState: "准备制作" },
+    PRODUCING: { node: 6, label: "制作", userFacingState: "制作与审核中" },
+    PRODUCTION_LOCKED: { node: 7, label: "发布包装", userFacingState: "准备包装" },
+    PACKAGING: { node: 7, label: "发布包装", userFacingState: "标题、封面与简介中" },
+    RELEASE_READY: { node: 7, label: "发布包装", userFacingState: "已完成" },
+  };
+  return status[state];
 }
 
 function artifactIdsFor(context: Record<string, unknown>): string[] {
@@ -1223,8 +1479,173 @@ function readReleaseEvidenceSources(value: unknown): Array<{ artifactId: string;
   });
 }
 
-function isPassedReview(value: unknown): value is Record<string, unknown> {
-  return isRecord(value) && value.passed === true;
+function readCreativeRoutes(value: unknown): CreativeRoute[] {
+  if (!Array.isArray(value) || value.length < 2 || value.length > 3) {
+    throw new Error("creativeRoutes must contain 2-3 routes.");
+  }
+  const ids = new Set<string>();
+  return value.map((route, index) => readCreativeRoute(route, `creativeRoutes[${index}]`, ids));
+}
+
+function readCreativeRoute(value: unknown, field: string, ids?: Set<string>): CreativeRoute {
+  if (!isRecord(value)) throw new Error(`${field} must be an object.`);
+  const id = requireText(value.id, `${field}.id`);
+  if (ids?.has(id)) throw new Error(`creativeRoutes contains duplicate id: ${id}.`);
+  ids?.add(id);
+  return {
+    id,
+    name: requireText(value.name, `${field}.name`),
+    centralTension: requireText(value.centralTension, `${field}.centralTension`),
+    openingScene: requireText(value.openingScene, `${field}.openingScene`),
+    proofMethod: requireText(value.proofMethod, `${field}.proofMethod`),
+    readerShift: requireText(value.readerShift, `${field}.readerShift`),
+    whyThisRoute: requireText(value.whyThisRoute, `${field}.whyThisRoute`),
+  };
+}
+
+function readScenarioDecision(
+  context: Record<string, unknown>,
+  question: ScenarioGrillQuestion,
+  stage: "baseline" | "outline" | "master",
+) {
+  const questionId = requireText(context.questionId, "questionId");
+  if (questionId !== question.id) throw new Error(`Question ${questionId} is not the current ${stage} scenario Grill question.`);
+  const answer = requireText(context.answer, "answer");
+  return {
+    id: `decision_${randomUUID()}`,
+    stage,
+    question,
+    answer,
+    answeredAt: new Date().toISOString(),
+    requiresRevisionOf: stage === "baseline" ? "campaign-intent" : stage === "outline" ? "creative-outline" : "content-master",
+  };
+}
+
+function optionalScenarioQuestion(value: unknown, field: string): ScenarioGrillQuestion | null {
+  if (value === undefined || value === null) return null;
+  if (!isRecord(value) || !Array.isArray(value.options)) throw new Error(`${field} must be a scenario Grill question.`);
+  if (value.options.length < 2 || value.options.length > 3) throw new Error(`${field}.options must contain 2-3 items.`);
+  const options = value.options.map((option, index) => {
+    if (!isRecord(option)) throw new Error(`${field}.options[${index}] must be an object.`);
+    return {
+      id: requireText(option.id, `${field}.options[${index}].id`),
+      label: requireText(option.label, `${field}.options[${index}].label`),
+      rationale: requireText(option.rationale, `${field}.options[${index}].rationale`),
+    };
+  });
+  const recommendedOptionId = requireText(value.recommendedOptionId, `${field}.recommendedOptionId`);
+  if (!options.some((option) => option.id === recommendedOptionId)) throw new Error(`${field}.recommendedOptionId must identify an option.`);
+  return {
+    id: requireText(value.id, `${field}.id`),
+    scene: requireText(value.scene, `${field}.scene`),
+    tension: requireText(value.tension, `${field}.tension`),
+    prompt: requireText(value.prompt, `${field}.prompt`),
+    options,
+    recommendedOptionId,
+    affectedDeliverables: readStringArray(value.affectedDeliverables, `${field}.affectedDeliverables`),
+  };
+}
+
+function unresolvedDecisionIds(context: Record<string, unknown>): string[] {
+  return readStringArrayOrEmpty(context.unresolvedDecisionIds, "unresolvedDecisionIds");
+}
+
+function assertDecisionsIncorporated(incorporatesDecisionIds: readonly string[], unresolvedIds: readonly string[]): void {
+  const missing = unresolvedIds.filter((id) => !incorporatesDecisionIds.includes(id));
+  if (missing.length > 0) {
+    throw new Error(`The revised deliverable must incorporate pending decisions: ${missing.join(", ")}.`);
+  }
+}
+
+function assertNoUnresolvedDecisions(context: Record<string, unknown>): void {
+  const ids = unresolvedDecisionIds(context);
+  if (ids.length > 0) throw new Error(`A revised deliverable is required after decision(s): ${ids.join(", ")}.`);
+}
+
+function readMasterReview(value: unknown, carrier: "video" | "article"): MasterReview {
+  if (!isRecord(value)) throw new Error("masterReview must be an object.");
+  const writingStyle = value.writingStyle;
+  if (!isRecord(writingStyle)
+    || writingStyle.skill !== "geek-product-promo-writing"
+    || writingStyle.scope !== "macro-meso-micro"
+    || typeof writingStyle.passed !== "boolean") {
+    throw new Error("masterReview.writingStyle must contain an explicit geek-product-promo-writing review.");
+  }
+  const storyboardValue = value.storyboardDirection;
+  const storyboardDirection = storyboardValue === null || storyboardValue === undefined
+    ? null
+    : readStoryboardReview(storyboardValue);
+  if (carrier === "video" && storyboardDirection === null) {
+    throw new Error("Video masterReview requires storyboardDirection.");
+  }
+  return {
+    passed: value.passed === true,
+    evidenceBlockers: readStringArrayOrEmpty(value.evidenceBlockers, "masterReview.evidenceBlockers"),
+    writingStyle: {
+      skill: "geek-product-promo-writing",
+      scope: "macro-meso-micro",
+      passed: writingStyle.passed,
+      findings: readStringArrayOrEmpty(writingStyle.findings, "masterReview.writingStyle.findings"),
+    },
+    storyboardDirection,
+    assetEfficiencyFindings: readStringArrayOrEmpty(value.assetEfficiencyFindings, "masterReview.assetEfficiencyFindings"),
+  };
+}
+
+function readStoryboardReview(value: unknown): NonNullable<MasterReview["storyboardDirection"]> {
+  if (!isRecord(value)
+    || value.skill !== "storyboard-direction"
+    || value.scope !== "shot-continuity-coverage-assets"
+    || typeof value.passed !== "boolean") {
+    throw new Error("masterReview.storyboardDirection must be an explicit storyboard-direction review.");
+  }
+  return {
+    skill: "storyboard-direction",
+    scope: "shot-continuity-coverage-assets",
+    passed: value.passed,
+    findings: readStringArrayOrEmpty(value.findings, "masterReview.storyboardDirection.findings"),
+  };
+}
+
+function createBaselineRevisionBrief(proposal: ReturnType<typeof readBaselineProposal>, decision: Record<string, unknown>) {
+  return createAgentWorkCapsule({
+    stage: "baseline_alignment",
+    inputs: { priorProposal: proposal, latestDecision: decision },
+    constraints: [
+      "Revise the campaign-intent proposal around the user's answer; do not merely append it as a note.",
+      "Keep the reader scene concrete and preserve the locked evidence boundary.",
+    ],
+    requestedOutput: { description: "A revised campaign-intent proposal that visibly incorporates the answered decision.", fields: ["baselineProposal"] },
+    validationRules: ["Set incorporatesDecisionIds to the decision id in latestDecision.", "Submit through promo_commit(kind=propose_baseline)."],
+    nextCommitKind: "propose_baseline",
+    decisionCard: {
+      node: 2, label: "宣传意图修订", known: ["你刚完成一个场景选择。"],
+      recommendation: "让这个选择改变表达主次，而不是只换一处措辞。", userDecision: null,
+      whyItMatters: "锁定前必须能看见该决定怎样进入传播核心。", nextArtifact: "02-campaign-intent/campaign-intent.json",
+    },
+    deliverable: { name: "revised campaign intent", workspaceFile: "02-campaign-intent/campaign-intent.json", purpose: "反映用户答案的可复用宣传意图。" },
+  });
+}
+
+function createMasterRevisionBrief(
+  creativeOutline: LockedCreativeOutline,
+  priorMaster: ContentMaster,
+  decision: Record<string, unknown>,
+) {
+  return createAgentWorkCapsule({
+    stage: "master_development",
+    inputs: { creativeOutline, priorMaster, latestDecision: decision },
+    constraints: ["Revise the complete master along the answered scenario decision.", "Run the explicit writing review again before resubmission."],
+    requestedOutput: { description: "A revised complete master and explicit review trace.", fields: ["masterDraft", "masterReview", "incorporatesDecisionIds"] },
+    validationRules: ["Set incorporatesDecisionIds to the decision id in latestDecision.", "Submit through promo_commit(kind=submit_master_draft)."],
+    nextCommitKind: "submit_master_draft",
+    decisionCard: {
+      node: 4, label: "主稿修订", known: ["一个阻塞性场景选择已确认。"],
+      recommendation: "让选择影响正文/分镜的段落推进与证据，而不是局部补丁。", userDecision: null,
+      whyItMatters: "主稿必须保留可追溯的决策链与重新审校记录。", nextArtifact: "04-master/master-draft.json",
+    },
+    deliverable: { name: "revised master", workspaceFile: "04-master/master-draft.json", purpose: "可继续制作的完整成稿或分镜。" },
+  });
 }
 
 function toMasterAssetUsages(master: ContentMaster): MasterAssetUsage[] {
