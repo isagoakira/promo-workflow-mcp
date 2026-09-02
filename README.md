@@ -150,7 +150,10 @@ docker compose -f docker-compose.vectcut.yml up --build -d
 ## 目录
 
 ```text
-plugins/promo-workflow-guidance/ 可选 Codex 插件：阶段化文风、分镜与流程指导
+plugins/promo-workflow-guidance/ 可选 Codex 插件：阶段化文风、分镜与流程指导。插件内的 MCP 通过
+`scripts/start-promo-workflow.sh` 转发到本地仓库；在 Codex 环境中设置
+`PROMO_WORKFLOW_ROOT` 指向本仓库根目录即可。启动器会优先使用 Codex 自带的 Node.js，避免依赖
+系统 Node.js。
 packages/contracts/  MCP 与本地服务共享契约
 packages/promo-mcp/  Local MCP adapter
 packages/promo-service/ 状态机与 Injector 实现

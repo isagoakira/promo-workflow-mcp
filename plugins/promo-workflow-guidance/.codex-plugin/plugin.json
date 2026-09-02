@@ -1,6 +1,6 @@
 {
   "name": "promo-workflow-guidance",
-  "version": "0.1.3+codex.20260902141644",
+  "version": "0.1.3+codex.20260902154323",
   "description": "Optional stage-specific guidance for the local Promo Workflow service.",
   "author": {
     "name": "Local developer"
