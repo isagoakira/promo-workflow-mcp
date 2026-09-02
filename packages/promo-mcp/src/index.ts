@@ -8,6 +8,7 @@ import {
   WorkspaceDeliverables,
   VectCutHttpBridge,
   WorkflowService,
+  GUIDANCE_IDS,
   type CommitKind,
   type WorkflowCarrier,
 } from "@promo-workflow/service";
@@ -79,6 +80,31 @@ export function createPromoServer(service: WorkflowService) {
             ? await service.get(workflowId)
             : { workflows: await service.list() },
         );
+      } catch (error) {
+        return errorResponse(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "promo_guidance",
+    {
+      title: "加载当前节点指导",
+      description: "读取当前 agentWork 所声明的 MCP 内置完整指导。promo_get 只返回简短 policy 概览；开始创意、写作或分镜前按其中的 router 调用本工具。",
+      inputSchema: {
+        workflowId: z.string().min(1),
+        guideIds: z.array(z.enum(GUIDANCE_IDS)).min(1).optional(),
+      },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ workflowId, guideIds }) => {
+      try {
+        return response(await service.guidance(workflowId, guideIds));
       } catch (error) {
         return errorResponse(error);
       }

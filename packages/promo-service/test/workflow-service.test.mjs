@@ -99,6 +99,14 @@ test("workflow advances with optimistic revisions and idempotency", async () => 
   });
   assert.equal(baselineStarted.state, "ALIGNING_BASELINE");
   assert.equal(baselineStarted.agentWork.stage, "baseline_alignment");
+  assert.deepEqual(baselineStarted.agentWork.guidance.policies.map((policy) => policy.id), ["promo-workflow-orchestration", "promo-writing-supervision"]);
+  const guidance = await service.guidance(baselineStarted.workflowId);
+  assert.deepEqual(guidance.guides.map((guide) => guide.id), ["promo-workflow-orchestration", "promo-writing-supervision"]);
+  assert.match(guidance.guides[1].instructions.join("\n"), /feature-list sequence/);
+  await assert.rejects(
+    service.guidance(baselineStarted.workflowId, ["promo-storyboard-supervision"]),
+    /不允许加载指导/,
+  );
 
   const proposed = await service.commit({
     workflowId: created.workflowId,

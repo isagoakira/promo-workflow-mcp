@@ -14,7 +14,7 @@ import {
 } from "@promo-workflow/contracts";
 import { buildArticleAssemblerOutput, type AcceptedArticleAssetResult } from "./article-assembler-adapter.js";
 
-import { createAgentWorkCapsule } from "./agent-work.js";
+import { createAgentWorkCapsule, createGuidanceRequest, type GuidanceId } from "./agent-work.js";
 import { ArtifactStore } from "./artifacts/store.js";
 import type { ArtifactRef } from "./artifacts/types.js";
 import { createBaselineBrief, readBaselineProposal } from "./baseline.js";
@@ -29,6 +29,7 @@ import { createReleasePackagingBrief, getProductionArtifactIds, readReleasePacka
 import { createFetchBrief, TopicMatchingEngine } from "./selection/matcher.js";
 import type { SelectionEngine } from "./selection/types.js";
 import { JsonWorkflowStore } from "./store.js";
+import { loadGuidance } from "./guidance-catalog.js";
 import { WorkspaceDeliverables, type WorkspaceDeliverableRef } from "./workspace-deliverables.js";
 import type {
   PendingAction,
@@ -146,6 +147,29 @@ export class WorkflowService {
     const data = await this.store.read();
     const snapshots = await Promise.all(Object.values(data.workflows).map((record) => this.toSnapshot(record)));
     return snapshots.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+  }
+
+  /** Resolves only the full MCP-owned guidance declared by the current node. */
+  async guidance(workflowId: string, requestedIds?: readonly GuidanceId[]): Promise<Record<string, unknown>> {
+    const data = await this.store.read();
+    const record = requireWorkflow(data.workflows[workflowId], workflowId);
+    const work = agentWorkFor(record.context);
+    if (!work?.guidance) {
+      throw new Error("当前节点没有可加载的指导。请先调用 promo_run 生成 agentWork。");
+    }
+    const allowedIds = work.guidance.policies.map((policy) => policy.id);
+    const ids = requestedIds === undefined ? allowedIds : [...new Set(requestedIds)];
+    const unavailable = ids.filter((id) => !allowedIds.includes(id));
+    if (unavailable.length > 0) {
+      throw new Error(`当前节点不允许加载指导：${unavailable.join(", ")}。可用：${allowedIds.join(", ")}。`);
+    }
+    return {
+      workflowId: record.id,
+      state: record.state,
+      stage: work.stage,
+      guides: loadGuidance(ids),
+      workspaceDeliverables: workspaceDeliverablesFor(record.context),
+    };
   }
 
   async run(input: RunWorkflowInput): Promise<WorkflowSnapshot> {
@@ -710,7 +734,7 @@ export class WorkflowService {
         workspaceFile: "03-creative-outline/creative-routes.json",
         purpose: "用户已比较过的创意方向及其选择依据。",
       },
-      guidance: { plugin: "promo-workflow-guidance", skills: ["promo-writing-supervision"] },
+      guidance: createGuidanceRequest(["promo-writing-supervision"]),
     });
   }
 

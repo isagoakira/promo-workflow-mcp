@@ -12,7 +12,7 @@ import type {
   VideoTimelineMaster,
   VideoTimelineShot,
 } from "@promo-workflow/contracts";
-import { createAgentWorkCapsule, type AgentWorkCapsule } from "./agent-work.js";
+import { createAgentWorkCapsule, createGuidanceRequest, type AgentWorkCapsule } from "./agent-work.js";
 
 export interface CreateMasterDevelopmentBriefInput {
   creativeOutline: LockedCreativeOutline;
@@ -67,12 +67,9 @@ export function createMasterDevelopmentBrief(input: CreateMasterDevelopmentBrief
       "Lock only after the complete master, review, and asset plan pass validation.",
     ],
     nextCommitKind: "submit_master_draft",
-    guidance: {
-      plugin: "promo-workflow-guidance",
-      skills: carrier === "video"
-        ? ["promo-writing-supervision", "promo-storyboard-supervision"]
-        : ["promo-writing-supervision"],
-    },
+    guidance: createGuidanceRequest(carrier === "video"
+      ? ["promo-writing-supervision", "promo-storyboard-supervision"]
+      : ["promo-writing-supervision"]),
   });
 }
 

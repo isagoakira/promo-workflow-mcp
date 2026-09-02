@@ -13,7 +13,7 @@ import {
   type VideoOutlineSegment,
 } from "@promo-workflow/contracts";
 
-import { createAgentWorkCapsule, type AgentWorkCapsule } from "./agent-work.js";
+import { createAgentWorkCapsule, createGuidanceRequest, type AgentWorkCapsule } from "./agent-work.js";
 
 export interface CreateCreativeOutlineBriefInput {
   topicId: string;
@@ -110,7 +110,7 @@ export function createCreativeOutlineBrief(input: CreateCreativeOutlineBriefInpu
       workspaceFile: "03-creative-outline/locked-outline.json",
       purpose: "后续扩写、分镜和跨载体改编的结构母版。",
     },
-    guidance: { plugin: "promo-workflow-guidance", skills: ["promo-writing-supervision"] },
+    guidance: createGuidanceRequest(["promo-writing-supervision"]),
   });
 }
 

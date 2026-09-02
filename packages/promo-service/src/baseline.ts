@@ -1,5 +1,5 @@
 import type { CampaignIntentCard, ScenarioGrillQuestion } from "@promo-workflow/contracts";
-import { createAgentWorkCapsule, type AgentWorkCapsule } from "./agent-work.js";
+import { createAgentWorkCapsule, createGuidanceRequest, type AgentWorkCapsule } from "./agent-work.js";
 import type { TopicCandidate } from "./selection/types.js";
 
 export interface BaselineProposal {
@@ -40,6 +40,7 @@ export function createBaselineBrief(input: CreateBaselineBriefInput): AgentWorkC
       "Submit a proposal through promo_commit(kind=propose_baseline).",
     ],
     nextCommitKind: "propose_baseline",
+    guidance: createGuidanceRequest(["promo-writing-supervision"]),
     decisionCard: {
       node: 2,
       label: "宣传核心与用户引导",

@@ -4,7 +4,7 @@ import type {
   VideoProductionLockedCapsule,
 } from "@promo-workflow/contracts";
 
-import { createAgentWorkCapsule, type AgentWorkCapsule } from "./agent-work.js";
+import { createAgentWorkCapsule, createGuidanceRequest, type AgentWorkCapsule } from "./agent-work.js";
 
 /**
  * A release claim is deliberately linked to production evidence rather than
@@ -109,7 +109,7 @@ export function createReleasePackagingBrief(input: CreateReleasePackagingBriefIn
       "One final selection is committed through promo_commit(kind=select_release_package).",
     ],
     nextCommitKind: "submit_release_package",
-    guidance: { plugin: "promo-workflow-guidance", skills: ["promo-writing-supervision"] },
+    guidance: createGuidanceRequest(["promo-writing-supervision"]),
   });
 }
 

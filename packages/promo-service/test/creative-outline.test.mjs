@@ -61,7 +61,8 @@ test("creates an agent capsule for a budgeted creative outline", () => {
 
   assert.equal(capsule.stage, "creative_outline");
   assert.equal(capsule.nextCommitKind, "submit_outline_draft");
-  assert.deepEqual(capsule.guidance, { plugin: "promo-workflow-guidance", skills: ["promo-writing-supervision"] });
+  assert.equal(capsule.guidance.router, "promo_guidance");
+  assert.deepEqual(capsule.guidance.policies.map((policy) => policy.id), ["promo-workflow-orchestration", "promo-writing-supervision"]);
   assert.equal(capsule.inputs.recommendedStoryEngine, "single-task-evidence-chain");
   assert.match(capsule.constraints.join("\n"), /120 seconds/);
 });

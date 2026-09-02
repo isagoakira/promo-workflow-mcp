@@ -23,9 +23,10 @@ npm start
 
 材料卡、大纲、母稿、分镜、SRT、预览等内容先存入同目录的 `data/artifacts/`。每份工件不可变，带 SHA-256 内容哈希、父工件引用和版本号。与此同时，服务会把每个节点的当前交付物投影到 `data/workspace/<workflowId>/`：例如 `02-campaign-intent/campaign-intent.json`、`03-creative-outline/locked-outline.json`、`04-master/locked-master.json`。固定路径方便下一位 Agent 直接读取；同目录的 `*.artifact_<id>.json` 保留精确制品版本，`manifest.json` 列出全部可用交付物。
 
-任何支持 stdio MCP 的 Agent 都可以直接使用根目录的 [`.mcp.json`](.mcp.json)。它只暴露三个稳定工具：
+任何支持 stdio MCP 的 Agent 都可以直接使用根目录的 [`.mcp.json`](.mcp.json)。它暴露四个稳定工具：
 
 - `promo_get`：读取一个流程或列出全部流程；
+- `promo_guidance`：按当前节点加载 MCP 内置的完整流程、文风或分镜指导；
 - `promo_run`：推进当前节点中无需确认的自动步骤；
 - `promo_commit`：创建流程或写入一次经过确认的决策。
 
@@ -146,4 +147,4 @@ docs/                已确认架构和后续决策
 
 ## 可选指导插件
 
-`plugins/promo-workflow-guidance/` 与服务一同维护、单独安装。它只提供三类精炼指导：状态机调度、技术产品文风监督、视频分镜监督。`agentWork.guidance` 会在创意大纲、主稿和发布包装节点声明可加载的 Skill；未安装插件的 Agent 仍可依据胶囊自行完成同一 MCP 流程。
+`plugins/promo-workflow-guidance/` 与服务一同维护、单独安装。它只提供三类精炼指导：状态机调度、技术产品文风监督、视频分镜监督。`agentWork.guidance` 只暴露当前节点允许调用的浅 policy 概览和 `promo_guidance` 路由；Agent 必须通过该路由读取 MCP 内置的完整指导。插件提供相同主题的宿主级增强，但流程正确性不依赖插件是否安装。

@@ -1,5 +1,8 @@
 export { JsonWorkflowStore } from "./store.js";
 export { createAgentWorkCapsule } from "./agent-work.js";
+export { createGuidanceRequest } from "./agent-work.js";
+export { GUIDANCE_IDS } from "./agent-work.js";
+export { loadGuidance } from "./guidance-catalog.js";
 export { createBaselineBrief, readBaselineProposal } from "./baseline.js";
 export {
   assertOutlineGrillCapacity,
@@ -48,7 +51,10 @@ export type {
   AgentWorkStage,
   CreateAgentWorkCapsuleInput,
   GuidanceRequest,
+  GuidanceId,
+  GuidancePolicy,
 } from "./agent-work.js";
+export type { GuidanceGuide } from "./guidance-catalog.js";
 export type {
   AcceptedArticleAssetResult,
   ArticleAssemblerOutput,
