@@ -3,6 +3,7 @@ import { McpServer } from "@modelcontextprotocol/server";
 import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import * as z from "zod/v4";
 import { discoverAdapterStatus, type ProductionAdapterStatus } from "./adapter-registry.js";
+import { startReviewHost } from "./review-host.js";
 import {
   JsonWorkflowStore,
   ArtifactStore,
@@ -62,6 +63,7 @@ function errorResponse(error: unknown) {
 
 export interface PromoRuntimeStatus {
   adapterStatus: readonly ProductionAdapterStatus[];
+  reviewUrl?: string | undefined;
 }
 
 export function createPromoServer(service: WorkflowService, runtime: PromoRuntimeStatus = { adapterStatus: [] }) {
@@ -89,12 +91,37 @@ export function createPromoServer(service: WorkflowService, runtime: PromoRuntim
       try {
         return response(
           workflowId
-            ? { ...await service.get(workflowId), adapterStatus: runtime.adapterStatus }
-            : { workflows: await service.list(), adapterStatus: runtime.adapterStatus },
+            ? { ...await service.get(workflowId), adapterStatus: runtime.adapterStatus, reviewUrl: reviewUrlFor(runtime.reviewUrl, workflowId) }
+            : { workflows: await service.list(), adapterStatus: runtime.adapterStatus, reviewUrl: runtime.reviewUrl },
         );
       } catch (error) {
         return errorResponse(error);
       }
+    },
+  );
+
+  server.registerTool(
+    "promo_review",
+    {
+      title: "打开宣传工作流审核台",
+      description: "返回当前本地 Promo 审核台地址。审核台按七个节点实时展示已锁定制品与当前进度，只读且不绕过人工审核门禁。",
+      inputSchema: {
+        workflowId: z.string().min(1).optional(),
+      },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ workflowId }) => {
+      if (!runtime.reviewUrl) return errorResponse(new Error("本地审核台未启动。请运行 npm run review，或检查 PROMO_REVIEW_PORT。"));
+      return response({
+        url: reviewUrlFor(runtime.reviewUrl, workflowId),
+        workflowId: workflowId ?? null,
+        note: "页面随 Promo Workflow 的状态和制品更新自动刷新；批准、退回和拒绝仍通过 promo_commit 提交。",
+      });
     },
   );
 
@@ -224,11 +251,32 @@ async function main() {
     : undefined;
   const cutWorkbenchBridge = CutWorkbenchStdioBridge.fromEnvironment();
   const adapterStatus = discoverAdapterStatus();
+  const reviewHost = process.env.PROMO_REVIEW_HOST ?? "127.0.0.1";
+  const reviewPort = process.env.PROMO_REVIEW_PORT ? Number(process.env.PROMO_REVIEW_PORT) : 4173;
+  let reviewUrl: string | undefined;
+  if (process.env.PROMO_REVIEW_AUTO_START !== "false") {
+    if (!Number.isInteger(reviewPort) || reviewPort < 1 || reviewPort > 65535) {
+      throw new Error("PROMO_REVIEW_PORT must be a valid port number.");
+    }
+    reviewUrl = `http://${reviewHost}:${reviewPort}`;
+    try {
+      await startReviewHost({ dataDirectory: dataDir, host: reviewHost, port: reviewPort });
+    } catch (error) {
+      const code = typeof error === "object" && error !== null ? (error as NodeJS.ErrnoException).code : undefined;
+      if (code !== "EADDRINUSE") throw error;
+      console.error(`Promo Review Desk already uses ${reviewUrl}; reusing the existing local host.`);
+    }
+  }
   const server = createPromoServer(
     new WorkflowService(store, artifacts, undefined, cutWorkbenchBridge, vectCutBridge, workspace),
-    { adapterStatus },
+    { adapterStatus, reviewUrl },
   );
   await server.connect(new StdioServerTransport());
+}
+
+function reviewUrlFor(baseUrl: string | undefined, workflowId: string | undefined): string | undefined {
+  if (!baseUrl || !workflowId) return baseUrl;
+  return `${baseUrl}/?workflowId=${encodeURIComponent(workflowId)}`;
 }
 
 void main().catch((error) => {

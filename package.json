@@ -10,6 +10,7 @@
     "build": "npm run build --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "start": "npm run start --workspace=@promo-workflow/mcp-server",
+    "review": "npm run review --workspace=@promo-workflow/mcp-server",
     "setup": "node scripts/setup-local.mjs workflow",
     "setup:cut-workbench": "node scripts/setup-local.mjs cut-workbench"
   },

@@ -35,6 +35,8 @@ Make the workflow legible whenever its MCP is used. After the opening `promo_get
 
 Use the capsule’s `decisionCard.node` and `decisionCard.label` when available; otherwise translate the returned state and `pendingAction` into a short business label. Do not make users read raw enum names, revisions, IDs, or tool payloads.
 
+`promo_get` returns `reviewUrl` whenever the local review desk is available. Treat it as the workflow’s primary visual surface: surface or open the workflow-specific URL after the opening read and after each state-changing call, so the user can see the seven-node progress line and the frozen evidence in order. If only a general URL is known, call `promo_review` with the current workflow ID. The review desk is read-only; it never replaces the commit, revision, or human-review gate.
+
 ```text
 工作流状态｜节点 {编号或业务名称}
 已锁定：{已确认的选题、基调或上游制品；没有则写“尚未锁定”}
