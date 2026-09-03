@@ -29,6 +29,21 @@ Read `pendingAction`, `revision`, `agentWork`, and the referenced artifacts from
 
 After every `promo_run` or `promo_commit`, use the returned revision for the next call. Never advance because a later output “looks ready.”
 
+## Show the active node
+
+Make the workflow legible whenever its MCP is used. After the opening `promo_get`, and immediately after every `promo_run` or `promo_commit`, write one short status note in the user-facing progress update before doing further work. For a state-changing call, give the pre-call note only when the current node has not already been shown in this turn; always give the returned node after the call.
+
+Use the capsule’s `decisionCard.node` and `decisionCard.label` when available; otherwise translate the returned state and `pendingAction` into a short business label. Do not make users read raw enum names, revisions, IDs, or tool payloads.
+
+```text
+工作流状态｜节点 {编号或业务名称}
+已锁定：{已确认的选题、基调或上游制品；没有则写“尚未锁定”}
+当前：{这一节点正在处理或允许执行的唯一动作}
+下一步：{下一项交付物，或用户现在需要作出的一个决定}
+```
+
+Do not emit a duplicate note for a pure read that leaves the node unchanged. At a human gate, `下一步` must say “等待你的确认” plainly, rather than implying the Agent will continue.
+
 ## Rules that protect the workflow
 
 - Pass `expectedRevision` on every mutation. If it conflicts, call `promo_get`; retry only when the same mutation was not already applied.
