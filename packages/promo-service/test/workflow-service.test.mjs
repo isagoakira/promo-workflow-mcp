@@ -28,17 +28,36 @@ test("workflow advances with optimistic revisions and idempotency", async () => 
         capabilities: ["MCP state control"],
         activeCampaignLines: ["reliable agent workflow", "local MCP state control"],
       },
-      competition: { enabled: true, fanout: 2, selectionMode: "weighted_top_k" },
+      competition: { enabled: true, fanout: 2, selectionMode: "top_p", topP: 0.85 },
       topicSources: [{ id: "demo", label: "Demo feed", kind: "rss", url: "https://example.com/feed.xml" }],
     },
     idempotencyKey: "create-1",
   });
   assert.equal(created.state, "READY");
   assert.equal(created.revision, 1);
+  assert.equal(created.status.node, 0);
+  assert.equal(created.pendingAction.id, "confirm_workspace");
+  assert.ok(created.workspace);
+  assert.match(await readFile(created.workspace.guidePath, "utf8"), /Agent 首次进入必须完成/);
+  assert.match(await readFile(join(created.workspace.userMaterialsPath, "README.md"), "utf8"), /用户项目资料/);
+  await assert.rejects(
+    service.run({ workflowId: created.workflowId, expectedRevision: created.revision, idempotencyKey: "run-before-workspace-confirm" }),
+    /Workspace preflight is incomplete/,
+  );
+
+  const workspaceReady = await service.commit({
+    workflowId: created.workflowId,
+    expectedRevision: created.revision,
+    kind: "confirm_workspace",
+    summary: "User confirmed the project workspace boundary.",
+    context: { confirmed: true },
+    idempotencyKey: "confirm-workspace-1",
+  });
+  assert.equal(workspaceReady.workspace.setupConfirmed, true);
 
   const prepared = await service.run({
     workflowId: created.workflowId,
-    expectedRevision: created.revision,
+    expectedRevision: workspaceReady.revision,
     idempotencyKey: "run-1",
   });
   assert.equal(prepared.state, "FETCHING");
@@ -103,6 +122,9 @@ test("workflow advances with optimistic revisions and idempotency", async () => 
   assert.deepEqual(baselineStarted.agentWork.guidance.policies.map((policy) => policy.id), ["promo-writing-supervision", "appso-article-contract"]);
   assert.deepEqual(baselineStarted.agentWork.guidance.policies.map((policy) => policy.plugin), ["promo-product-writing", "promo-article-appso"]);
   assert.equal(baselineStarted.agentWork.inputs.competition.fanout, 2);
+  assert.equal(baselineStarted.agentWork.inputs.competition.selectionMode, "top_p");
+  assert.equal(baselineStarted.agentWork.constraints.some((constraint) => /select one primary recommendation/.test(constraint)), true);
+  assert.equal(baselineStarted.agentWork.constraints.some((constraint) => /recommendationRationale/.test(constraint)), true);
   const guidance = await service.guidance(baselineStarted.workflowId);
   assert.deepEqual(guidance.guides.map((guide) => guide.id), ["promo-writing-supervision", "appso-article-contract"]);
   assert.match(guidance.guides[0].content, /Geek Product Promo Writing/);
@@ -121,12 +143,14 @@ test("workflow advances with optimistic revisions and idempotency", async () => 
     context: {
       competitionReport: {
         stage: "baseline",
-        selectionMode: "weighted_top_k",
+        selectionMode: "top_p",
         candidates: [
           { id: "conversion", strategy: "conversion-first", summary: "Lead with a fast repeatable outcome.", hardConstraintPassed: true, score: 84 },
           { id: "evidence", strategy: "evidence-first", summary: "Lead with a recorded proof path.", hardConstraintPassed: true, score: 79 },
         ],
         retainedCandidateIds: ["conversion", "evidence"],
+        recommendedCandidateId: "conversion",
+        recommendationRationale: "可靠性是当前读者决策的首要顾虑，conversion-first 能将可验证结果放在开头，同时保留证据路径。",
         reviewerAgreement: 0.8,
         needsHuman: false,
       },
@@ -309,7 +333,15 @@ test("article workflow assembles a local preview before production lock and rele
       articlePlatformProfile: articlePlatformProfile(),
     }, idempotencyKey: "article-create",
   });
-  const fetching = await service.run({ workflowId: created.workflowId, expectedRevision: created.revision, idempotencyKey: "article-fetch-brief" });
+  const workspaceReady = await service.commit({
+    workflowId: created.workflowId,
+    expectedRevision: created.revision,
+    kind: "confirm_workspace",
+    summary: "User confirmed the article workspace boundary.",
+    context: { confirmed: true },
+    idempotencyKey: "article-confirm-workspace",
+  });
+  const fetching = await service.run({ workflowId: created.workflowId, expectedRevision: workspaceReady.revision, idempotencyKey: "article-fetch-brief" });
   const matching = await service.commit({ workflowId: created.workflowId, expectedRevision: fetching.revision, kind: "submit_fetched_topics", summary: "Topic", context: { fetchedTopics: [{ sourceId: "feed", title: "State makes a local workflow repeatable", url: "https://example.com/article-topic", excerpt: "Practical result." }] }, idempotencyKey: "article-fetch" });
   const candidates = await service.run({ workflowId: created.workflowId, expectedRevision: matching.revision, idempotencyKey: "article-match" });
   const selected = await service.commit({ workflowId: created.workflowId, expectedRevision: candidates.revision, kind: "select_topic", summary: "Select", context: { topicId: candidates.topicMatch.candidates[0].topicId, selectedMaterials: ["https://example.com/article-topic"] }, idempotencyKey: "article-select" });
@@ -337,8 +369,12 @@ test("article workflow assembles a local preview before production lock and rele
   assert.ok(reviewPacket);
   const reviewDeliverable = review.deliverables.find((deliverable) => deliverable.kind === "human_review_packet");
   assert.ok(reviewDeliverable);
-  assert.match(await readFile(reviewDeliverable.path, "utf8"), /节点一：选材与证据/);
-  assert.match(await readFile(reviewDeliverable.path, "utf8"), /节点五：素材需求与前期执行/);
+  const reviewMarkdown = await readFile(reviewDeliverable.path, "utf8");
+  assert.match(reviewMarkdown, /节点一：选材与证据/);
+  assert.match(reviewMarkdown, /节点五：素材需求与前期执行/);
+  assert.match(reviewMarkdown, /你现在要做的决定/);
+  assert.match(reviewMarkdown, /宣传核心/);
+  assert.doesNotMatch(reviewMarkdown, /```json/);
   const producing = await service.commit({
     workflowId: created.workflowId, expectedRevision: review.revision, kind: "submit_human_review", summary: "Approve article pre-production review",
     context: { reviewArtifactId: reviewPacket.artifactId, acceptedRevision: review.revision, decision: "approve", comments: "Proceed to acquire the mapped article proof." },
@@ -363,6 +399,100 @@ test("article workflow assembles a local preview before production lock and rele
   const packaged = await service.commit({ workflowId: created.workflowId, expectedRevision: packaging.revision, kind: "submit_release_package", summary: "Package", context: { releasePackageDraft: validArticleReleaseDraft(evidence) }, idempotencyKey: "article-package" });
   const ready = await service.commit({ workflowId: created.workflowId, expectedRevision: packaged.revision, kind: "select_release_package", summary: "Select package", context: { titleId: "title-1", coverId: "cover-1" }, idempotencyKey: "article-select-package" });
   assert.equal(ready.state, "RELEASE_READY");
+});
+
+test("intermediate-node startup audits the project package and uses Grill instead of forcing rollback", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "promo-workflow-resume-") );
+  const artifacts = new ArtifactStore(join(directory, "artifacts"));
+  const service = new WorkflowService(
+    new JsonWorkflowStore(join(directory, "workflows.json")),
+    artifacts,
+    undefined,
+    undefined,
+    undefined,
+    new WorkspaceDeliverables(join(directory, "workspace"), artifacts),
+  );
+  const created = await service.create({
+    carrier: "article",
+    startAtNode: 4,
+    summary: "Continue an existing article project from the master node.",
+    context: {},
+    idempotencyKey: "resume-create",
+  });
+  assert.equal(created.pendingAction.id, "confirm_workspace");
+  const confirmed = await service.commit({
+    workflowId: created.workflowId,
+    expectedRevision: created.revision,
+    kind: "confirm_workspace",
+    summary: "Confirm workspace before importing existing progress.",
+    context: { confirmed: true },
+    idempotencyKey: "resume-confirm-workspace",
+  });
+  assert.equal(confirmed.pendingAction.id, "submit_workspace_progress_audit");
+
+  const audited = await service.commit({
+    workflowId: created.workflowId,
+    expectedRevision: confirmed.revision,
+    kind: "submit_workspace_progress_audit",
+    summary: "Audit the supplied project package.",
+    context: {
+      audit: {
+        sourcePaths: ["10-user-materials/progress.md"],
+        nodeCoverage: [
+          { node: 1, status: "complete", evidence: ["选题和来源已在进度包中说明。"] },
+          { node: 2, status: "partial", evidence: ["宣传意图只有口头说明，未锁定。"] },
+          { node: 3, status: "complete", evidence: ["已有一版路线和大纲。"] },
+          { node: 4, status: "missing", evidence: [] },
+        ],
+        missingItems: [{
+          id: "master-decision",
+          node: 4,
+          label: "主稿的证据边界和最终行动号召",
+          severity: "major_decision_gap",
+          reason: "没有这项决定，主稿无法判断哪些内容可以进入公开表达。",
+          canBeFilledByGrill: true,
+        }],
+        recommendation: "rollback",
+        recommendedStartNode: 2,
+        importedContext: {},
+      },
+    },
+    idempotencyKey: "resume-audit",
+  });
+  assert.equal(audited.pendingAction.id, "confirm_start_position");
+
+  const continued = await service.commit({
+    workflowId: created.workflowId,
+    expectedRevision: audited.revision,
+    kind: "confirm_start_position",
+    summary: "Continue from the requested node and fill the decision gap.",
+    context: { decision: "continue", targetNode: 4, userIntent: "我坚持继续现有进度，先补齐关键判断。" },
+    idempotencyKey: "resume-continue",
+  });
+  assert.equal(continued.pendingAction.id, "answer_workspace_grill");
+  assert.equal(continued.agentWork.stage, "workspace_intake");
+
+  const completed = await service.commit({
+    workflowId: created.workflowId,
+    expectedRevision: continued.revision,
+    kind: "answer_workspace_grill",
+    summary: "Supply the missing evidence boundary and CTA.",
+    context: { questionId: "workspace-gap-master-decision", answer: "只公开可录屏核对的项目记忆与来源，CTA 是先试一条真实规范。" },
+    idempotencyKey: "resume-grill-1",
+  });
+  assert.equal(completed.state, "OUTLINE_LOCKED");
+  assert.equal(completed.pendingAction.id, "begin_master");
+  await assert.rejects(
+    service.commit({
+      workflowId: created.workflowId,
+      expectedRevision: completed.revision,
+      kind: "save_note",
+      summary: "Attempt to escape the project workspace.",
+      context: { workspaceFile: "../another-workflow/notes.md" },
+      idempotencyKey: "resume-boundary-failure",
+    }),
+    /Workspace boundary violation/,
+  );
 });
 
 function validVideoOutlineDraft() {

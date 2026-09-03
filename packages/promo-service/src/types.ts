@@ -3,12 +3,17 @@ import type { AgentWorkCapsule } from "./agent-work.js";
 import type { ArtifactRef } from "./artifacts/types.js";
 import type { BaselineProposal } from "./baseline.js";
 import type { WorkspaceDeliverableRef } from "./workspace-deliverables.js";
+import type { WorkspaceScope } from "./workspace-scope.js";
 import type { TopicFetchBrief, TopicMatchRun } from "./selection/types.js";
 
 export type WorkflowCarrier = "video" | "article";
 
 export type WorkflowEventKind =
   | "workflow_created"
+  | "workspace_confirmed"
+  | "workspace_progress_audited"
+  | "workspace_start_position_confirmed"
+  | "workspace_grill_answered"
   | "fetched_topics_submitted"
   | "automatic_step"
   | "topic_selected"
@@ -69,6 +74,7 @@ export interface WorkflowSnapshot {
   revision: number;
   updatedAt: string;
   summary: string;
+  workspace?: WorkspaceScope | undefined;
   agentWork?: AgentWorkCapsule | undefined;
   fetchBrief?: TopicFetchBrief | undefined;
   topicMatch?: TopicMatchRun | undefined;

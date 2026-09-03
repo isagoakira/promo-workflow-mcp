@@ -28,6 +28,7 @@ export type ArtifactKind =
   | "production_checkpoint"
   | "production_handoff"
   | "production_locked"
+  | "workspace_progress_audit"
   | "release_package_draft"
   | "release_package";
 

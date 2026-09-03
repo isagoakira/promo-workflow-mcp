@@ -127,7 +127,31 @@ Agent 会使用 `promo_commit` 创建流程、使用 `promo_run` 运行自动步
 
 网页读取由 Agent 使用自己的浏览器、Web Fetch 或企业检索能力完成；Promo Workflow 记录来源、筛选与后续引用，不偷偷代替宿主联网。
 
-### 3. 按流程协作，而不是等一篇“黑箱成稿”
+### 4. 首次启动先建立并确认专属工作区
+
+每次 `create_workflow` 都会先在 `data/workspace/<workflowId>/` 建立本项目自己的目录框架，并生成根目录 `README.md`。这个 README 不是参考建议，而是 Agent 的第一道工作区门禁：Agent 必须先读它，向用户解释目录结构、用户资料入口和越界边界，等待用户明确确认后，才能调用 `promo_run` 推进节点一。
+
+用户可阅读、可交给 Agent 分析的现有稿件、截图、录屏、脱敏附件和进度包，统一放进：
+
+```text
+data/workspace/<workflowId>/
+├── 00-control/          # 流程状态、审核包、决策与版本追踪
+├── 01-selection/        # 节点一：选材与证据
+├── 02-campaign-intent/  # 节点二：宣传意图
+├── 03-creative-outline/ # 节点三：创意路线与大纲
+├── 04-master/           # 节点四：主稿与审校
+├── 05-requirements/     # 节点五：素材需求
+├── 06-production/       # 节点六：制作与验收
+├── 07-release/          # 节点七：发布包装
+├── 10-user-materials/   # 用户项目资料；Agent 只读
+└── 11-references/       # 用户授权参考资料；Agent 只读
+```
+
+`00-control/` 到 `07-release/` 由 Promo 维护，用户资料目录由用户维护。Agent 不得读取相邻 workflow、父目录、项目级 `sources/` 或工作区之外的本地路径；本地路径越界会被服务拒绝。制品和状态也不能通过直接改 JSON 绕过工作流，必须经 `promo_workflow` 提交。
+
+如果用户声明“从节点 3/4/5 等中间节点开始”，确认工作区后不能直接跳入：Agent 先分析 `10-user-materials/` 和 `11-references/` 中的进度包，把现有内容填入当前工作流，并提交节点覆盖、缺失项和证据。缺失项会分为“可省略”和“重大决策断层”，再向用户建议继续或回滚。用户坚持继续时，系统通过工作区接续 Grill 补充关键事实，不强制回滚。
+
+### 5. 按流程协作，而不是等一篇“黑箱成稿”
 
 | 节点 | 自动完成的部分 | 你要确认的部分 | 关键交付物 |
 | --- | --- | --- | --- |
@@ -148,7 +172,9 @@ Agent 会使用 `promo_commit` 创建流程、使用 `promo_run` 运行自动步
 
 ```text
 data/workspace/<workflowId>/
+├── README.md                            # 本项目工作区约定；首次启动必须先读
 ├── 00-control/
+│   ├── workspace-scope.json             # 服务维护的边界记录
 │   ├── current-review.md              # 当前待审版本
 │   ├── reviews/                       # 每次审核冻结的历史包
 │   ├── decision-ledger.json
@@ -159,10 +185,12 @@ data/workspace/<workflowId>/
 ├── 04-master/
 ├── 05-requirements/
 ├── 06-production/
-└── 07-release/
+├── 07-release/
+├── 10-user-materials/                  # 用户可阅读资料与进度包
+└── 11-references/                      # 用户授权参考资料
 ```
 
-审核包会展开对应的制品内容与版本信息，而不只是给一串链接。人工决定必须绑定当前 revision：
+审核包会由 Agent 翻译成“先看结论—节点证据—制作计划—事件时间线—当前决定”的人审摘要，展开对应的制品内容与版本信息，而不只是给一串链接，也不把存储 JSON 原样贴给人。人工决定必须绑定当前 revision：
 
 - `approve`：解锁制作节点；
 - `revise`：明确退回节点 2、3、4 或 5，历史制品继续可追溯；
@@ -179,23 +207,22 @@ data/workspace/<workflowId>/
   "competition": {
     "enabled": true,
     "fanout": 3,
-    "selectionMode": "weighted_top_k"
+    "selectionMode": "top_p",
+    "topP": 0.85
   }
 }
 ```
 
-Agent 此时应生成 2–5 条真正不同的策略路径，使用独立评审做硬约束淘汰与评分，并通过 `submit_competition_report` 保存结果。候选与评审会进入审核包。
-
-没有人工排序数据校准的概率时，服务只允许称为“加权 Top-k”；只有提交完整、已校准概率时才可使用 `calibrated_top_p`。它不会把一次主观评分伪装成 Top-p。
+Agent 此时应生成 2–5 条真正不同的策略路径，先淘汰不满足事实、证据或制作约束的候选，再结合当前节点注入的编辑指导判断读者决定、产品语境、品牌表达、叙事结构与可视化证明。Top‑p 会留下最小的强候选集，并由 Agent 选出一个最适合当前语境的主推荐方案，说明选择理由；结果通过 `submit_competition_report` 保存，候选与评审会进入审核包。
 
 ## MCP 工具一览
 
 | 工具 | 用途 |
 | --- | --- |
-| `promo_get` | 查看全部流程或单条流程、当前 revision、下一步动作与制品引用 |
+| `promo_get` | 查看全部流程或单条流程、工作区边界、当前 revision、下一步动作与制品引用 |
 | `promo_guidance` | 按当前节点读取完整流程、文风、文章或分镜指导 |
 | `promo_run` | 执行该节点无需人工决定的自动步骤 |
-| `promo_commit` | 创建流程，或提交选材、基线、大纲、母版、审核、制作与发布决定 |
+| `promo_commit` | 创建流程，或提交工作区确认、进度审计、接续 Grill、选材、基线、大纲、母版、审核、制作与发布决定 |
 
 每次写操作都带 `expectedRevision` 与 `idempotencyKey`：前者避免并发覆盖，后者让同一个请求可安全重试。把 `promo_get` 返回的 `pendingAction` 交给 Agent 作为下一步的唯一依据，能避免跳过锁定和审核。
 

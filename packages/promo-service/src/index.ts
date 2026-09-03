@@ -32,6 +32,13 @@ export {
 } from "./release-packaging.js";
 export { ArtifactStore } from "./artifacts/store.js";
 export { WorkspaceDeliverables } from "./workspace-deliverables.js";
+export {
+  assertWorkspacePath,
+  confirmWorkspaceScope,
+  createWorkspaceScope,
+  USER_WORKSPACE_DIRECTORIES,
+  WORKFLOW_WORKSPACE_DIRECTORIES,
+} from "./workspace-scope.js";
 export { WorkflowService } from "./workflow-service.js";
 export { TopicMatchingEngine, createFetchBrief } from "./selection/index.js";
 export type {
@@ -91,6 +98,7 @@ export type {
   WriteArtifactInput,
 } from "./artifacts/types.js";
 export type { WorkspaceDeliverableRef, SyncWorkflowWorkspaceInput } from "./workspace-deliverables.js";
+export type { WorkspacePathMode, WorkspaceScope } from "./workspace-scope.js";
 export type {
   FetchedTopic,
   ProductProfile,

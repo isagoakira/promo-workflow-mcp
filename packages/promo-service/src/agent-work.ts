@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 export type AgentWorkStage =
+  | "workspace_intake"
   | "topic_fetch"
   | "baseline_alignment"
   | "creative_outline"

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { resolve } from "node:path";
 
 import type { ArticleManuscriptMaster, ArticlePlatformBranch, PlatformProfile, WorkflowState } from "@promo-workflow/contracts";
 import {
@@ -16,7 +17,7 @@ import { buildArticleAssemblerOutput, type AcceptedArticleAssetResult } from "./
 
 import { createAgentWorkCapsule, createGuidanceRequest, type AgentWorkCapsule, type GuidanceId } from "./agent-work.js";
 import { ArtifactStore } from "./artifacts/store.js";
-import type { ArtifactRef } from "./artifacts/types.js";
+import type { ArtifactKind, ArtifactRef } from "./artifacts/types.js";
 import { createBaselineBrief, readBaselineProposal } from "./baseline.js";
 import { assertOutlineGrillCapacity, createCreativeOutlineBrief, readCreativeOutlineDraft } from "./creative-outline.js";
 import { unavailableCutWorkbenchBridge, runCutWorkbenchBridge, type CutWorkbenchBridge, type CutWorkbenchProductionResult } from "./cut-workbench-bridge.js";
@@ -33,6 +34,12 @@ import { JsonWorkflowStore } from "./store.js";
 import { loadGuidance } from "./guidance-catalog.js";
 import { createHumanReviewPacket } from "./human-review.js";
 import { WorkspaceDeliverables, type WorkspaceDeliverableRef } from "./workspace-deliverables.js";
+import {
+  confirmWorkspaceScope,
+  isWorkspaceScope,
+  validateWorkspaceReferences,
+  type WorkspaceScope,
+} from "./workspace-scope.js";
 import type {
   PendingAction,
   WorkflowCarrier,
@@ -76,13 +83,22 @@ const COMMIT_TRANSITIONS = {
   { from: WorkflowState; to: WorkflowState; event: WorkflowEventKind }
 >;
 
-export type CommitKind = keyof typeof COMMIT_TRANSITIONS | "save_note" | "submit_human_review" | "submit_competition_report";
+export type CommitKind = keyof typeof COMMIT_TRANSITIONS
+  | "save_note"
+  | "confirm_workspace"
+  | "submit_workspace_progress_audit"
+  | "confirm_start_position"
+  | "answer_workspace_grill"
+  | "submit_human_review"
+  | "submit_competition_report";
 
 export interface CreateWorkflowInput {
   carrier: WorkflowCarrier;
   summary: string;
   context: Record<string, unknown>;
   idempotencyKey: string;
+  /** Optional 1–7 node from which an existing project is being continued. */
+  startAtNode?: number | undefined;
 }
 
 export interface RunWorkflowInput {
@@ -117,8 +133,16 @@ export class WorkflowService {
       return existing;
     }
 
+    const requestedStartNode = input.startAtNode ?? optionalStartNode(input.context.startAtNode) ?? 1;
+    if (requestedStartNode > 1 && !this.workspace) {
+      throw new Error("从中间节点启动需要启用项目工作区，以便导入和审计现有进度材料。");
+    }
     const now = new Date().toISOString();
     const id = `wf_${randomUUID()}`;
+    const initialContext = {
+      ...without(input.context, ["startAtNode"]),
+      requestedStartNode,
+    };
     const record: WorkflowRecord = {
       id,
       carrier: input.carrier,
@@ -127,11 +151,20 @@ export class WorkflowService {
       createdAt: now,
       updatedAt: now,
       summary: input.summary,
-      context: input.context,
+      context: initialContext,
       events: [],
       idempotency: {},
     };
-    appendEvent(record, "workflow_created", "Workflow created; run the matching step next.");
+    if (this.workspace) {
+      const workspaceScope = await this.workspace.initialize({ workflowId: id, carrier: input.carrier });
+      record.context = { ...record.context, workspaceScope };
+      record.summary = requestedStartNode > 1
+        ? `已搭建本项目专属工作区；计划从节点 ${requestedStartNode} 接续，等待读取并审计现有进度材料。`
+        : "已搭建本项目专属工作区；请先阅读 README 并确认目录边界。";
+    }
+    appendEvent(record, "workflow_created", this.workspace
+      ? "Workflow created; workspace guide is ready and must be confirmed before content work."
+      : "Workflow created; run the matching step next.");
     await this.syncWorkspace(record);
     const snapshot = await this.toSnapshot(record);
     record.idempotency[input.idempotencyKey] = snapshot;
@@ -155,8 +188,19 @@ export class WorkflowService {
   async guidance(workflowId: string, requestedIds?: readonly GuidanceId[]): Promise<Record<string, unknown>> {
     const data = await this.store.read();
     const record = requireWorkflow(data.workflows[workflowId], workflowId);
-    const work = agentWorkFor(record.context);
+    const workspaceScope = this.workspaceScopeForRecord(record);
+    const work = decorateAgentWork(agentWorkFor(record.context), workspaceScope);
     if (!work?.guidance) {
+      const workspaceAction = workspacePendingAction(record);
+      if (workspaceAction) {
+        return {
+          workflowId: record.id,
+          state: record.state,
+          workspace: workspaceScope,
+          pendingAction: workspaceAction,
+          workspaceDeliverables: workspaceDeliverablesFor(record.context),
+        };
+      }
       throw new Error("当前节点没有可加载的指导。请先调用 promo_run 生成 agentWork。");
     }
     const allowedIds = work.guidance.policies.map((policy) => policy.id);
@@ -170,6 +214,7 @@ export class WorkflowService {
       state: record.state,
       stage: work.stage,
       guides: loadGuidance(ids),
+      workspace: workspaceScope,
       workspaceDeliverables: workspaceDeliverablesFor(record.context),
     };
   }
@@ -182,6 +227,11 @@ export class WorkflowService {
       return repeated;
     }
     assertRevision(record, input.expectedRevision);
+
+    const workspaceBlock = workspacePendingAction(record);
+    if (workspaceBlock) {
+      throw new Error(`Workspace preflight is incomplete. ${workspaceBlock.instruction}`);
+    }
 
     const next = RUN_TRANSITIONS[record.state];
     if (!next) {
@@ -400,7 +450,139 @@ export class WorkflowService {
     }
     assertRevision(record, input.expectedRevision);
 
-    if (input.kind === "save_note") {
+    const workspaceScope = this.workspaceScopeForRecord(record);
+    if (workspaceScope) {
+      validateWorkspaceReferences(input.context, workspaceScope, "commit.context");
+    }
+    assertNoProtectedWorkspaceInput(input.context);
+    const workspaceBlock = workspacePendingAction(record);
+    if (workspaceBlock && input.kind !== workspaceCommitKind(workspaceBlock.id)) {
+      throw new Error(`Workspace preflight requires ${workspaceCommitKind(workspaceBlock.id)} before ${input.kind}. ${workspaceBlock.instruction}`);
+    }
+
+    if (input.kind === "confirm_workspace") {
+      if (!workspaceScope) throw new Error("confirm_workspace requires an enabled project workspace.");
+      if (record.state !== "READY") throw new Error("confirm_workspace is only valid before the first content node runs.");
+      if (workspaceScope.setupConfirmed) throw new Error("This project workspace is already confirmed.");
+      if (input.context.confirmed !== true) {
+        throw new Error("confirm_workspace requires context.confirmed: true after the Agent has explained the directory contract to the user.");
+      }
+      if (input.context.workspaceRoot !== undefined
+        && resolve(requireText(input.context.workspaceRoot, "workspaceRoot")) !== workspaceScope.root) {
+        throw new Error(`workspaceRoot must equal the active project workspace: ${workspaceScope.root}.`);
+      }
+      record.context = {
+        ...record.context,
+        workspaceScope: confirmWorkspaceScope(workspaceScope, new Date().toISOString()),
+      };
+      record.summary = record.context.requestedStartNode && record.context.requestedStartNode !== 1
+        ? `工作区边界已确认；接下来先审计从节点 ${record.context.requestedStartNode} 接续所需的现有材料。`
+        : "工作区边界已确认；现在可以从节点一开始准备选材。";
+      record.revision += 1;
+      record.updatedAt = new Date().toISOString();
+      appendEvent(record, "workspace_confirmed", input.summary);
+    } else if (input.kind === "submit_workspace_progress_audit") {
+      if (!workspaceScope?.setupConfirmed) throw new Error("提交进度审计前必须先确认项目工作区。");
+      if (record.state !== "READY") throw new Error("submit_workspace_progress_audit is only valid before the first content node runs.");
+      const requestedStartNode = requestedStartNodeFor(record.context);
+      if (requestedStartNode <= 1) throw new Error("当前项目没有声明从中间节点接续，无需提交工作区进度审计。");
+      const audit = readWorkspaceProgressAudit(input.context.audit ?? input.context.progressAudit, requestedStartNode);
+      const importedContext = sanitizeImportedContext(audit.importedContext);
+      const normalizedAudit = { ...audit, importedContext };
+      const importedRefs: ArtifactRef[] = [];
+      for (const imported of audit.importedArtifacts) {
+        const artifact = await this.artifacts.write({
+          kind: imported.kind,
+          content: imported.content,
+          parentArtifactIds: artifactIdsFor(record.context),
+          revision: record.revision + 1,
+        });
+        importedRefs.push(artifact);
+      }
+      const auditArtifact = await this.artifacts.write({
+        kind: "workspace_progress_audit",
+        content: normalizedAudit,
+        parentArtifactIds: [...artifactIdsFor(record.context), ...importedRefs.map((ref) => ref.artifactId)],
+        revision: record.revision + 1,
+      });
+      record.context = withArtifacts(record.context, [...importedRefs, auditArtifact], {
+        ...importedContext,
+        ...contextAdditionsForImportedArtifacts(importedRefs, audit.importedArtifacts),
+        workspaceProgressAuditArtifactId: auditArtifact.artifactId,
+        workspaceProgressAudit: normalizedAudit,
+      });
+      record.summary = `已完成节点 ${requestedStartNode} 接续审计：${audit.missingItems.length} 项待处理，其中 ${audit.missingItems.filter((item) => item.severity === "major_decision_gap").length} 项属于重大决策断层；等待用户选择继续或回滚。`;
+      record.revision += 1;
+      record.updatedAt = new Date().toISOString();
+      appendEvent(record, "workspace_progress_audited", input.summary);
+    } else if (input.kind === "confirm_start_position") {
+      if (!workspaceScope?.setupConfirmed) throw new Error("确认接续位置前必须先确认项目工作区。");
+      if (record.state !== "READY") throw new Error("confirm_start_position is only valid before the first content node runs.");
+      const audit = workspaceAuditFor(record.context);
+      if (!audit) throw new Error("请先提交 workspace progress audit，再选择继续或回滚。");
+      const decision = requireText(input.context.decision, "decision");
+      if (decision !== "continue" && decision !== "rollback") throw new Error("decision must be continue or rollback.");
+      const requestedStartNode = requestedStartNodeFor(record.context);
+      const targetNode = input.context.targetNode === undefined
+        ? decision === "continue" ? requestedStartNode : audit.recommendedStartNode
+        : readWorkflowNode(input.context.targetNode, "targetNode");
+      if (decision === "rollback" && targetNode > requestedStartNode) {
+        throw new Error("回滚目标必须不晚于用户声明的接续节点。");
+      }
+      const userIntent = requireText(input.context.userIntent ?? input.context.comments ?? input.summary, "userIntent");
+      const majorGaps = audit.missingItems.filter((item) => item.severity === "major_decision_gap");
+      record.context = {
+        ...record.context,
+        workspaceStartPositionConfirmed: { decision, targetNode, userIntent, confirmedAt: new Date().toISOString() },
+      };
+      if (decision === "continue" && majorGaps.length > 0) {
+        const grill = createWorkspaceGrill(audit, targetNode);
+        record.context = {
+          ...record.context,
+          workspaceGrill: grill,
+          agentWork: createWorkspaceGrillWork(audit, targetNode, grill.answers),
+        };
+        record.summary = `用户选择继续节点 ${targetNode}；先用 ${grill.questions.length} 个 Grill 问题补齐重大决策断层，不强制回滚。`;
+      } else {
+        record.context = without(record.context, ["workspaceGrill", "agentWork"]);
+        applyStartPosition(record, targetNode);
+        record.summary = decision === "rollback"
+          ? `按用户决定回到节点 ${targetNode}，后续材料仍保留在本项目工作区。`
+          : `按用户决定继续节点 ${targetNode}；可在发现缺口时继续用 Grill 补充。`;
+      }
+      record.revision += 1;
+      record.updatedAt = new Date().toISOString();
+      appendEvent(record, "workspace_start_position_confirmed", input.summary);
+    } else if (input.kind === "answer_workspace_grill") {
+      if (!workspaceScope?.setupConfirmed) throw new Error("补充接续信息前必须先确认项目工作区。");
+      if (record.state !== "READY") throw new Error("answer_workspace_grill is only valid before the first content node runs.");
+      const grill = workspaceGrillFor(record.context);
+      if (!grill) throw new Error("当前没有待回答的工作区接续 Grill。");
+      const questionId = requireText(input.context.questionId, "questionId");
+      const question = grill.questions.find((item) => item.id === questionId);
+      if (!question) throw new Error(`Unknown workspace Grill question ${questionId}.`);
+      if (grill.answers.some((answer) => answer.questionId === questionId)) throw new Error(`Workspace Grill question ${questionId} has already been answered.`);
+      const answer = requireText(input.context.answer, "answer");
+      const decision = await this.artifacts.write({
+        kind: "decision_ledger",
+        content: { kind: "workspace_grill", questionId, answer, answeredAt: new Date().toISOString() },
+        parentArtifactIds: artifactIdsFor(record.context),
+        revision: record.revision + 1,
+      });
+      const nextGrill = { ...grill, answers: [...grill.answers, { questionId, answer }] };
+      record.context = withArtifact(record.context, decision, { workspaceGrill: nextGrill });
+      if (nextGrill.answers.length === nextGrill.questions.length) {
+        record.context = without(record.context, ["workspaceGrill", "agentWork"]);
+        applyStartPosition(record, nextGrill.targetNode);
+        record.summary = `接续所需信息已通过 Grill 补齐；按用户意图继续节点 ${nextGrill.targetNode}。`;
+      } else {
+        record.context = { ...record.context, agentWork: createWorkspaceGrillWork(workspaceAuditFor(record.context) ?? nextGrill.audit, nextGrill.targetNode, nextGrill.answers) };
+        record.summary = `已补充 1 个接续信息；还剩 ${nextGrill.questions.length - nextGrill.answers.length} 个 Grill 问题。`;
+      }
+      record.revision += 1;
+      record.updatedAt = new Date().toISOString();
+      appendEvent(record, "workspace_grill_answered", input.summary);
+    } else if (input.kind === "save_note") {
       record.context = { ...record.context, ...input.context };
       record.summary = input.summary;
       record.revision += 1;
@@ -1170,6 +1352,8 @@ export class WorkflowService {
   private async toSnapshot(record: WorkflowRecord): Promise<WorkflowSnapshot> {
     const topicMatch = await this.topicMatchFor(record.context);
     const baselineProposal = baselineProposalFor(record.context);
+    const workspaceScope = this.workspaceScopeForRecord(record);
+    const rawAgentWork = agentWorkFor(record.context);
     return {
       workflowId: record.id,
       carrier: record.carrier,
@@ -1177,7 +1361,8 @@ export class WorkflowService {
       revision: record.revision,
       updatedAt: record.updatedAt,
       summary: record.summary,
-      agentWork: agentWorkFor(record.context),
+      ...(workspaceScope ? { workspace: workspaceScope } : {}),
+      agentWork: decorateAgentWork(rawAgentWork, workspaceScope),
       fetchBrief: fetchBriefFor(record.context),
       topicMatch,
       ...(baselineProposal ? {
@@ -1185,7 +1370,7 @@ export class WorkflowService {
         baselineGrillCount: baselineGrillCount(record.context),
       } : {}),
       deliverables: workspaceDeliverablesFor(record.context),
-      status: statusFor(record.state),
+      status: statusFor(record.state, Boolean(workspacePendingAction(record))),
       artifactRefs: artifactRefsFor(record.context),
       pendingAction: pendingActionForRecord(record),
     };
@@ -1193,6 +1378,7 @@ export class WorkflowService {
 
   private async syncWorkspace(record: WorkflowRecord): Promise<void> {
     if (!this.workspace) return;
+    const scope = this.workspaceScopeForRecord(record) ?? this.workspace.scopeFor(record.id, record.carrier);
     const deliverables = await this.workspace.sync({
       workflowId: record.id,
       carrier: record.carrier,
@@ -1200,8 +1386,15 @@ export class WorkflowService {
       revision: record.revision,
       summary: record.summary,
       artifactRefs: artifactRefsFor(record.context),
+      workspaceScope: scope,
     });
-    record.context = { ...record.context, workspaceDeliverables: deliverables };
+    record.context = { ...record.context, workspaceScope: scope, workspaceDeliverables: deliverables };
+  }
+
+  private workspaceScopeForRecord(record: WorkflowRecord): WorkspaceScope | undefined {
+    const contextScope = record.context.workspaceScope;
+    if (isWorkspaceScope(contextScope)) return contextScope;
+    return this.workspace?.scopeFor(record.id, record.carrier);
   }
 
   private async topicMatchFor(context: Record<string, unknown>): Promise<WorkflowSnapshot["topicMatch"]> {
@@ -1284,7 +1477,343 @@ function pendingActionFor(state: WorkflowState): PendingAction | null {
   }
 }
 
+const WORKSPACE_CONTEXT_PROTECTED_KEYS = [
+  "workspaceScope",
+  "workspaceDeliverables",
+  "artifactRefs",
+  "workspaceProgressAudit",
+  "workspaceGrill",
+  "workspaceStartPositionConfirmed",
+  "requestedStartNode",
+  "activeStartNode",
+  "agentWork",
+] as const;
+
+const IMPORTABLE_PROGRESS_ARTIFACT_KINDS: readonly ArtifactKind[] = [
+  "fetched_topic_cards",
+  "topic_match",
+  "selected_topic",
+  "baseline",
+  "creative_routes",
+  "creative_route_selection",
+  "creative_outline_draft",
+  "creative_outline",
+  "outline_script",
+  "content_master_draft",
+  "master_review",
+  "content_master",
+  "spoken_script",
+  "recording_execution",
+  "asset_plan",
+  "requirement_set",
+  "preproduction_material_plan",
+  "subtitle",
+  "production_plan",
+  "production_checkpoint",
+  "production_handoff",
+  "production_locked",
+  "release_package_draft",
+  "release_package",
+];
+
+interface WorkspaceNodeCoverage {
+  node: number;
+  status: "complete" | "partial" | "missing" | "not_applicable";
+  evidence: string[];
+  notes?: string;
+}
+
+interface WorkspaceMissingItem {
+  id: string;
+  node: number;
+  label: string;
+  severity: "optional" | "major_decision_gap";
+  reason: string;
+  canBeFilledByGrill: boolean;
+}
+
+interface WorkspaceGrillQuestion {
+  id: string;
+  prompt: string;
+  why: string;
+  missingItemId?: string;
+}
+
+interface WorkspaceImportedArtifact {
+  kind: ArtifactKind;
+  content: unknown;
+  sourcePath?: string;
+}
+
+interface WorkspaceProgressAudit {
+  schemaVersion: 1;
+  requestedStartNode: number;
+  sourcePaths: string[];
+  nodeCoverage: WorkspaceNodeCoverage[];
+  missingItems: WorkspaceMissingItem[];
+  recommendation: "continue" | "rollback";
+  recommendedStartNode: number;
+  grillQuestions: WorkspaceGrillQuestion[];
+  importedContext: Record<string, unknown>;
+  importedArtifacts: WorkspaceImportedArtifact[];
+}
+
+interface WorkspaceGrillState {
+  targetNode: number;
+  questions: WorkspaceGrillQuestion[];
+  answers: Array<{ questionId: string; answer: string }>;
+  audit: WorkspaceProgressAudit;
+}
+
+function workspacePendingAction(record: WorkflowRecord): PendingAction | null {
+  const scope = isWorkspaceScope(record.context.workspaceScope) ? record.context.workspaceScope : undefined;
+  if (scope && !scope.setupConfirmed) {
+    return action("confirm_workspace", "commit", `首次进入本项目，先打开 ${scope.guidePath}，向用户说明目录结构、资料入口和越界边界；得到明确确认后，以 kind=confirm_workspace、context.confirmed=true 提交。`);
+  }
+
+  const requestedStartNode = requestedStartNodeFor(record.context);
+  if (requestedStartNode <= 1) return null;
+  if (!record.context.workspaceProgressAuditArtifactId) {
+    return action("submit_workspace_progress_audit", "agent_work", `用户声明从节点 ${requestedStartNode} 开始。先读取 ${scope?.userMaterialsPath ?? "当前工作区的 10-user-materials/"} 和 ${scope?.referencesPath ?? "当前工作区的 11-references/"}，填充可识别的进度制品，提交节点覆盖、缺失项分级和继续/回滚建议。`);
+  }
+  const grill = workspaceGrillFor(record.context);
+  if (grill) {
+    return action("answer_workspace_grill", "agent_work", `用户选择继续，但仍有重大决策断层。按 agentWork 逐个回答工作区接续 Grill；补充信息后会自动接回节点 ${grill.targetNode}，不强制回滚。`);
+  }
+  if (!isRecord(record.context.workspaceStartPositionConfirmed)) {
+    const audit = workspaceAuditFor(record.context);
+    const major = audit?.missingItems.filter((item) => item.severity === "major_decision_gap").length ?? 0;
+    return action("confirm_start_position", "commit", `请向用户展示进度审计：${major} 项重大决策断层。用户可选择继续节点 ${requestedStartNode}（必要时用 Grill 补充）或指定更早节点回滚；系统不代替用户强制回滚。`);
+  }
+  return null;
+}
+
+function workspaceCommitKind(actionId: string): CommitKind {
+  const kinds: Record<string, CommitKind> = {
+    confirm_workspace: "confirm_workspace",
+    submit_workspace_progress_audit: "submit_workspace_progress_audit",
+    confirm_start_position: "confirm_start_position",
+    answer_workspace_grill: "answer_workspace_grill",
+  };
+  const kind = kinds[actionId];
+  if (!kind) throw new Error(`Unknown workspace preflight action ${actionId}.`);
+  return kind;
+}
+
+function workspaceAuditFor(context: Record<string, unknown>): WorkspaceProgressAudit | undefined {
+  const value = context.workspaceProgressAudit;
+  if (!isRecord(value) || value.schemaVersion !== 1 || !Array.isArray(value.missingItems)) return undefined;
+  return value as unknown as WorkspaceProgressAudit;
+}
+
+function workspaceGrillFor(context: Record<string, unknown>): WorkspaceGrillState | undefined {
+  const value = context.workspaceGrill;
+  if (!isRecord(value) || !Array.isArray(value.questions) || !Array.isArray(value.answers) || !isRecord(value.audit)) return undefined;
+  return value as unknown as WorkspaceGrillState;
+}
+
+function createWorkspaceGrill(audit: WorkspaceProgressAudit, targetNode: number): WorkspaceGrillState {
+  const questions = audit.grillQuestions.length > 0
+    ? audit.grillQuestions
+    : audit.missingItems
+      .filter((item) => item.severity === "major_decision_gap")
+      .map((item) => ({
+        id: `workspace-gap-${item.id}`,
+        prompt: `为了从节点 ${targetNode} 继续，请补充：${item.label}`,
+        why: item.reason,
+        missingItemId: item.id,
+      }));
+  return { targetNode, questions, answers: [], audit };
+}
+
+function createWorkspaceGrillWork(
+  audit: WorkspaceProgressAudit,
+  targetNode: number,
+  answers: readonly { questionId: string; answer: string }[],
+): AgentWorkCapsule {
+  return createAgentWorkCapsule({
+    stage: "workspace_intake",
+    inputs: { audit, targetNode, answeredQuestions: answers },
+    constraints: [
+      "只补充影响接续节点的事实、约束和用户决策，不替用户臆造历史进度。",
+      "重大决策断层可以通过 Grill 补齐；不因为缺口自动强制用户回滚。",
+      "所有用户资料只来自当前项目工作区的 10-user-materials 或 11-references。",
+    ],
+    requestedOutput: { description: "针对工作区进度审计缺口逐题补充信息。", fields: ["questionId", "answer"] },
+    validationRules: ["每次只回答一个未完成 questionId。", "通过 promo_commit(kind=answer_workspace_grill) 提交。", "回答完成后按用户原意接回目标节点。"],
+    nextCommitKind: "answer_workspace_grill",
+    decisionCard: {
+      node: 0,
+      label: "工作区接续补充",
+      known: [`用户希望从节点 ${targetNode} 接续。`],
+      recommendation: "先补齐会改变后续主张、证据或制作方向的事实，再继续。",
+      userDecision: "回答 Grill；不要求用户回滚。",
+      whyItMatters: "防止不同项目的进度材料被误接，也避免在重大决策未说明时直接跨节点。",
+      nextArtifact: "00-control/workspace-progress-audit.json",
+    },
+  });
+}
+
+function readWorkspaceProgressAudit(value: unknown, requestedStartNode: number): WorkspaceProgressAudit {
+  if (!isRecord(value)) throw new Error("submit_workspace_progress_audit requires context.audit.");
+  const sourcePaths = readStringArrayOrEmpty(value.sourcePaths, "audit.sourcePaths");
+  if (!Array.isArray(value.nodeCoverage) || value.nodeCoverage.length === 0) {
+    throw new Error("audit.nodeCoverage must contain at least one node assessment.");
+  }
+  const nodeCoverage = value.nodeCoverage.map((item, index) => {
+    if (!isRecord(item)) throw new Error(`audit.nodeCoverage[${index}] must be an object.`);
+    const status = requireText(item.status, `audit.nodeCoverage[${index}].status`);
+    if (!["complete", "partial", "missing", "not_applicable"].includes(status)) {
+      throw new Error(`audit.nodeCoverage[${index}].status is invalid.`);
+    }
+    return {
+      node: readWorkflowNode(item.node, `audit.nodeCoverage[${index}].node`),
+      status: status as WorkspaceNodeCoverage["status"],
+      evidence: readStringArrayOrEmpty(item.evidence, `audit.nodeCoverage[${index}].evidence`),
+      ...(item.notes === undefined ? {} : { notes: requireText(item.notes, `audit.nodeCoverage[${index}].notes`) }),
+    };
+  });
+  if (!Array.isArray(value.missingItems)) throw new Error("audit.missingItems must be an array.");
+  const missingItems = value.missingItems.map((item, index) => {
+    if (!isRecord(item)) throw new Error(`audit.missingItems[${index}] must be an object.`);
+    const severity = requireText(item.severity, `audit.missingItems[${index}].severity`);
+    if (severity !== "optional" && severity !== "major_decision_gap") throw new Error(`audit.missingItems[${index}].severity is invalid.`);
+    return {
+      id: requireText(item.id, `audit.missingItems[${index}].id`),
+      node: readWorkflowNode(item.node, `audit.missingItems[${index}].node`),
+      label: requireText(item.label, `audit.missingItems[${index}].label`),
+      severity: severity as WorkspaceMissingItem["severity"],
+      reason: requireText(item.reason, `audit.missingItems[${index}].reason`),
+      canBeFilledByGrill: item.canBeFilledByGrill === undefined ? severity === "major_decision_gap" : item.canBeFilledByGrill === true,
+    };
+  });
+  const recommendation = requireText(value.recommendation, "audit.recommendation");
+  if (recommendation !== "continue" && recommendation !== "rollback") throw new Error("audit.recommendation must be continue or rollback.");
+  const grillQuestions = value.grillQuestions === undefined ? [] : readWorkspaceGrillQuestions(value.grillQuestions);
+  const importedContext = value.importedContext === undefined ? {} : value.importedContext;
+  if (!isRecord(importedContext)) throw new Error("audit.importedContext must be an object.");
+  const importedArtifacts = value.importedArtifacts === undefined ? [] : readWorkspaceImportedArtifacts(value.importedArtifacts);
+  return {
+    schemaVersion: 1,
+    requestedStartNode,
+    sourcePaths,
+    nodeCoverage,
+    missingItems,
+    recommendation,
+    recommendedStartNode: value.recommendedStartNode === undefined
+      ? Math.max(1, requestedStartNode - 1)
+      : readWorkflowNode(value.recommendedStartNode, "audit.recommendedStartNode"),
+    grillQuestions,
+    importedContext,
+    importedArtifacts,
+  };
+}
+
+function readWorkspaceGrillQuestions(value: unknown): WorkspaceGrillQuestion[] {
+  if (!Array.isArray(value)) throw new Error("audit.grillQuestions must be an array.");
+  return value.map((item, index) => {
+    if (!isRecord(item)) throw new Error(`audit.grillQuestions[${index}] must be an object.`);
+    return {
+      id: requireText(item.id, `audit.grillQuestions[${index}].id`),
+      prompt: requireText(item.prompt, `audit.grillQuestions[${index}].prompt`),
+      why: requireText(item.why, `audit.grillQuestions[${index}].why`),
+      ...(item.missingItemId === undefined ? {} : { missingItemId: requireText(item.missingItemId, `audit.grillQuestions[${index}].missingItemId`) }),
+    };
+  });
+}
+
+function readWorkspaceImportedArtifacts(value: unknown): WorkspaceImportedArtifact[] {
+  if (!Array.isArray(value)) throw new Error("audit.importedArtifacts must be an array.");
+  return value.map((item, index) => {
+    if (!isRecord(item) || !("content" in item)) throw new Error(`audit.importedArtifacts[${index}] must contain kind and content.`);
+    const kind = requireText(item.kind, `audit.importedArtifacts[${index}].kind`) as ArtifactKind;
+    if (!IMPORTABLE_PROGRESS_ARTIFACT_KINDS.includes(kind)) throw new Error(`audit.importedArtifacts[${index}].kind is not importable.`);
+    return {
+      kind,
+      content: item.content,
+      ...(item.sourcePath === undefined ? {} : { sourcePath: requireText(item.sourcePath, `audit.importedArtifacts[${index}].sourcePath`) }),
+    };
+  });
+}
+
+function contextAdditionsForImportedArtifacts(
+  refs: readonly ArtifactRef[],
+  imported: readonly WorkspaceImportedArtifact[],
+): Record<string, unknown> {
+  const keyByKind: Partial<Record<ArtifactKind, string>> = {
+    fetched_topic_cards: "fetchedTopicsArtifactId",
+    topic_match: "topicMatchArtifactId",
+    selected_topic: "selectedTopicArtifactId",
+    baseline: "baselineArtifactId",
+    creative_routes: "creativeRoutesArtifactId",
+    creative_route_selection: "selectedCreativeRouteArtifactId",
+    creative_outline_draft: "outlineDraftArtifactId",
+    creative_outline: "creativeOutlineArtifactId",
+    content_master_draft: "masterDraftArtifactId",
+    master_review: "masterReviewArtifactId",
+    content_master: "contentMasterArtifactId",
+    requirement_set: "requirementSetArtifactId",
+    preproduction_material_plan: "preproductionMaterialPlanArtifactId",
+    production_plan: "productionPlanArtifactId",
+    production_checkpoint: "productionCheckpointArtifactId",
+    production_handoff: "productionHandoffArtifactId",
+    production_locked: "productionArtifactId",
+    release_package_draft: "releasePackageDraftArtifactId",
+    release_package: "releasePackageArtifactId",
+  };
+  const additions: Record<string, unknown> = {};
+  imported.forEach((item, index) => {
+    const ref = refs[index];
+    const key = keyByKind[item.kind];
+    if (ref && key) additions[key] = ref.artifactId;
+    if (item.kind === "selected_topic" && isRecord(item.content)) {
+      const topic = isRecord(item.content.topic) ? item.content.topic : undefined;
+      if (typeof topic?.topicId === "string") additions.topicId = topic.topicId;
+      if (Array.isArray(item.content.selectedMaterials)) additions.selectedMaterials = item.content.selectedMaterials;
+    }
+  });
+  return additions;
+}
+
+function applyStartPosition(record: WorkflowRecord, targetNode: number): void {
+  record.state = workflowStateForStartNode(targetNode);
+  record.context = { ...record.context, activeStartNode: targetNode };
+}
+
+function workflowStateForStartNode(node: number): WorkflowState {
+  switch (node) {
+    case 1: return "READY";
+    case 2: return "TOPIC_LOCKED";
+    case 3: return "BASELINE_LOCKED";
+    case 4: return "OUTLINE_LOCKED";
+    case 5: return "MASTER_LOCKED";
+    case 6: return "REQUIREMENTS_READY";
+    case 7: return "PRODUCTION_LOCKED";
+    default: throw new Error(`Invalid workflow node ${node}; expected 1–7.`);
+  }
+}
+
+function assertNoProtectedWorkspaceInput(context: Record<string, unknown>): void {
+  for (const key of ["workspaceScope", "workspaceDeliverables"]) {
+    if (Object.prototype.hasOwnProperty.call(context, key)) {
+      throw new Error(`${key} is service-owned and cannot be supplied through promo_commit.`);
+    }
+  }
+}
+
+function sanitizeImportedContext(context: Record<string, unknown>): Record<string, unknown> {
+  const safe = without(context, WORKSPACE_CONTEXT_PROTECTED_KEYS);
+  for (const key of Object.keys(safe)) {
+    if (/(artifact|revision|workflow|event|agentWork|workspace)/i.test(key)) {
+      throw new Error(`audit.importedContext.${key} is service-owned; import source artifacts instead of reusing another workflow's identifiers.`);
+    }
+  }
+  return safe;
+}
+
 function pendingActionForRecord(record: WorkflowRecord): PendingAction | null {
+  const workspaceAction = workspacePendingAction(record);
+  if (workspaceAction) return workspaceAction;
   if (record.state === "PRODUCING" && record.carrier === "article" && record.context.articleProductionArtifacts) {
     return action("review_article_preview", "commit", "审阅完整本地文章预览；确认后以 lock_production 提交 previewAccepted: true。任何硬约束或语义漂移需一并回填。");
   }
@@ -1332,6 +1861,26 @@ function agentWorkFor(context: Record<string, unknown>) {
   return isRecord(value) ? value as unknown as WorkflowSnapshot["agentWork"] : undefined;
 }
 
+function decorateAgentWork(
+  work: WorkflowSnapshot["agentWork"] | undefined,
+  scope: WorkspaceScope | undefined,
+): WorkflowSnapshot["agentWork"] | undefined {
+  if (!work || !scope) return work;
+  return {
+    ...work,
+    inputs: { ...work.inputs, workspaceScope: scope },
+    constraints: [
+      ...new Set([
+        ...work.constraints,
+        `先阅读 ${scope.guidePath}，并向用户说明目录结构和资料边界。`,
+        `只使用当前项目工作区 ${scope.root}；用户资料放在 ${scope.userMaterialsPath} 或 ${scope.referencesPath}。`,
+        "不得读取、引用或写入其他 workflow、父目录、项目 sources/或未授权本地路径。",
+        "工作流制品通过 promo_workflow 提交，不直接改写控制文件或其他节点 JSON。",
+      ]),
+    ],
+  };
+}
+
 function artifactRefsFor(context: Record<string, unknown>): ArtifactRef[] {
   const value = context.artifactRefs;
   return Array.isArray(value) ? value.filter(isArtifactRef) : [];
@@ -1347,7 +1896,25 @@ function workspaceDeliverablesFor(context: Record<string, unknown>): WorkspaceDe
     && typeof item.versionPath === "string");
 }
 
-function statusFor(state: WorkflowState): WorkflowSnapshot["status"] {
+function requestedStartNodeFor(context: Record<string, unknown>): number {
+  return context.requestedStartNode === undefined ? 1 : readWorkflowNode(context.requestedStartNode, "requestedStartNode");
+}
+
+function optionalStartNode(value: unknown): number | undefined {
+  return value === undefined ? undefined : readWorkflowNode(value, "startAtNode");
+}
+
+function readWorkflowNode(value: unknown, field: string): number {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 1 || value > 7) {
+    throw new Error(`${field} must be an integer from 1 to 7.`);
+  }
+  return value;
+}
+
+function statusFor(state: WorkflowState, workspaceBlocked = false): WorkflowSnapshot["status"] {
+  if (workspaceBlocked) {
+    return { node: 0, label: "工作区前置", userFacingState: "等待目录确认或进度接续审计" };
+  }
   const status: Record<WorkflowState, WorkflowSnapshot["status"]> = {
     NEEDS_PROFILE: { node: 1, label: "选材", userFacingState: "等待产品卡" },
     READY: { node: 1, label: "选材", userFacingState: "准备抓取" },
@@ -1689,10 +2256,9 @@ function withCompetitionPlan(
     constraints: [
       ...agentWork.constraints,
       `Competition enabled: ask ${config.fanout} independent agents for genuinely different ${stage} paths; do not vary only wording.`,
-      "Separate generation from evaluation. Eliminate hard-constraint failures before scoring strategic fit, reader value, proof strength, brand voice, and production cost.",
-      config.selectionMode === "calibrated_top_p"
-        ? `Only call the retained set Top-p after recording calibrated relative probabilities and retaining the smallest cumulative set at p=${config.topP}.`
-        : "This installation has no calibrated historical ranking data: call the result weighted Top-k, never Top-p.",
+      "Separate generation from evaluation. Eliminate hard-constraint failures first; then use the loaded editorial guidance to judge contextual fit: the locked reader decision, evidence pattern, product voice, narrative movement, visual proof, and production cost.",
+      `Use Top-p at p=${config.topP} to retain the smallest genuinely strong set. Do not reduce this to a mechanical score: select one primary recommendation and explain why it is the most fitting route in this specific context.`,
+      "The competition report must name recommendedCandidateId and recommendationRationale; the recommendation must be one of the retained candidates and the rationale must connect the choice to the active brief rather than repeat its score.",
     ],
     requestedOutput: {
       ...agentWork.requestedOutput,
@@ -1705,24 +2271,25 @@ function withCompetitionPlan(
   };
 }
 
-function competitionConfig(context: Record<string, unknown>): { fanout: number; selectionMode: "weighted_top_k" | "calibrated_top_p"; topP: number | null } | null {
+function competitionConfig(context: Record<string, unknown>): { fanout: number; selectionMode: "top_p"; topP: number } | null {
   const value = context.competition;
   if (!isRecord(value) || value.enabled !== true) return null;
   const fanout = value.fanout === undefined ? 3 : readPositiveInteger(value.fanout, "competition.fanout");
   if (fanout < 2 || fanout > 5) throw new Error("competition.fanout must be between 2 and 5.");
-  const selectionMode = value.selectionMode === "calibrated_top_p" ? "calibrated_top_p" : "weighted_top_k";
-  if (selectionMode === "weighted_top_k") return { fanout, selectionMode, topP: null };
-  const topP = readNonNegativeNumber(value.topP, "competition.topP");
+  if (value.selectionMode !== undefined && value.selectionMode !== "top_p") {
+    throw new Error("competition.selectionMode must be top_p.");
+  }
+  const topP = value.topP === undefined ? 0.85 : readNonNegativeNumber(value.topP, "competition.topP");
   if (topP <= 0 || topP > 1) throw new Error("competition.topP must be greater than 0 and at most 1.");
-  return { fanout, selectionMode, topP };
+  return { fanout, selectionMode: "top_p", topP };
 }
 
 function readCompetitionReport(value: unknown, expectedStage: CompetitionStage) {
   if (!isRecord(value)) throw new Error("competitionReport must be an object.");
   if (value.stage !== expectedStage) throw new Error(`competitionReport.stage must be ${expectedStage}.`);
   const selectionMode = value.selectionMode;
-  if (selectionMode !== "weighted_top_k" && selectionMode !== "calibrated_top_p") {
-    throw new Error("competitionReport.selectionMode must be weighted_top_k or calibrated_top_p.");
+  if (selectionMode !== "top_p") {
+    throw new Error("competitionReport.selectionMode must be top_p.");
   }
   if (!Array.isArray(value.candidates) || value.candidates.length < 2 || value.candidates.length > 5) {
     throw new Error("competitionReport.candidates must contain 2-5 candidates.");
@@ -1742,18 +2309,17 @@ function readCompetitionReport(value: unknown, expectedStage: CompetitionStage) 
     if (probability !== null && probability > 1) throw new Error("competition candidate probability must be at most 1.");
     return { id, strategy, summary: requireText(candidate.summary, `competitionReport.candidates[${index}].summary`), hardConstraintPassed: candidate.hardConstraintPassed === true, score, probability };
   });
-  if (selectionMode === "calibrated_top_p") {
-    const total = candidates.reduce((sum, candidate) => sum + (candidate.probability ?? 0), 0);
-    if (candidates.some((candidate) => candidate.probability === null) || total < 0.98 || total > 1.02) {
-      throw new Error("calibrated_top_p requires probabilities for every candidate that sum to approximately 1.");
-    }
-  }
   const retainedCandidateIds = readStringArray(value.retainedCandidateIds, "competitionReport.retainedCandidateIds");
   if (retainedCandidateIds.some((id) => !ids.has(id))) throw new Error("competitionReport.retainedCandidateIds contains an unknown candidate.");
   const passingIds = new Set(candidates.filter((candidate) => candidate.hardConstraintPassed).map((candidate) => candidate.id));
   if (retainedCandidateIds.some((id) => !passingIds.has(id))) {
     throw new Error("competitionReport.retainedCandidateIds may only include candidates that passed hard constraints.");
   }
+  const recommendedCandidateId = requireText(value.recommendedCandidateId, "competitionReport.recommendedCandidateId");
+  if (!retainedCandidateIds.includes(recommendedCandidateId)) {
+    throw new Error("competitionReport.recommendedCandidateId must be retained by Top-p.");
+  }
+  const recommendationRationale = requireText(value.recommendationRationale, "competitionReport.recommendationRationale");
   const reviewerAgreement = readNonNegativeNumber(value.reviewerAgreement, "competitionReport.reviewerAgreement");
   if (reviewerAgreement > 1) throw new Error("competitionReport.reviewerAgreement must be at most 1.");
   return {
@@ -1762,6 +2328,8 @@ function readCompetitionReport(value: unknown, expectedStage: CompetitionStage) 
     selectionMode,
     candidates,
     retainedCandidateIds,
+    recommendedCandidateId,
+    recommendationRationale,
     reviewerAgreement,
     needsHuman: value.needsHuman === true,
     createdAt: new Date().toISOString(),
@@ -2025,7 +2593,7 @@ function withArtifacts(context: Record<string, unknown>, artifacts: readonly Art
   };
 }
 
-function without(context: Record<string, unknown>, keys: string[]): Record<string, unknown> {
+function without(context: Record<string, unknown>, keys: readonly string[]): Record<string, unknown> {
   const next = { ...context };
   for (const key of keys) delete next[key];
   return next;
