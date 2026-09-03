@@ -1,170 +1,215 @@
 # Promo Workflow
 
-一个轻量、本地、可恢复的产品宣传工作流 MCP。它把选材、创意、分镜/文章、制作和发布包装稳定为同一条状态机；Agent 负责提出和执行，人负责在应当介入的位置确认、修改或退回。
+把一条产品宣传，从“这条热点能不能讲”推进到可审核、可制作、可发布的本地 MCP 工作流。
 
-当前运行层已落地为一个本地 stdio MCP 服务：
+Promo Workflow 面向需要持续制作产品视频或公众号文章的团队。它不替你虚构内容，也不把一次聊天当成项目管理：Agent 负责检索、起草、整理和执行；服务负责锁住版本、记录决定、生成明确交付物，并在该由人判断的位置停下来。
 
-- 薄 Skill：识别任务并调用 MCP。
-- Local MCP：暴露少量稳定工具。
-- Promo Service：维护状态机、上下文注入点与流程记录。
-- 本地 JSON：保存流程状态与已确认决策；不需要数据库服务。
+```text
+选材与证据 → 宣传意图 → 创意/大纲 → 母版 → 素材需求
+                                                   ↓
+                                           人工审核与版本冻结
+                                                   ↓
+                                  制作执行 → 标题、封面、发布包
+```
 
-## 最小安装与启动
+## 它解决什么问题
+
+一次宣传制作最容易失控的地方，不是“写不出一段文案”，而是每次都要重新对齐：选题有没有产品承接、核心想让谁改变什么认知、大纲和成片是不是同一件事、素材缺口由谁补、什么版本可以进入制作。
+
+Promo Workflow 用一个可恢复的状态机承接这些决定：
+
+- 把外部热点与产品定位、能力和近期口径一起匹配，而不是只追热度；
+- 先锁定宣传核心与用户引导意图，再扩写大纲和完整母版；
+- 对视频输出分镜、口播、录制执行、素材需求和 SRT；对文章输出结构、正文、视觉证明计划和本地预览；
+- 将节点 1–5 的证据、决定、Grill 记录、候选评审和需求清单汇编为一份人工审核包；
+- 人工批准后才能制作；退回指定节点不会删除旧版本；
+- 关键阶段交付物可按固定路径读取，并保留不可变版本和内容哈希。
+
+它适合“Agent 参与内容生产，但人必须掌握创意与发布责任”的团队。不适合把它当作自动发布器、网页爬虫或一键视频生成器：抓取、拍摄、AI 生成、剪辑和平台发布仍由接入的宿主或制作工具完成。
+
+## 5 分钟上手
+
+### 1. 安装并构建
 
 唯一前置条件是 Node.js 20 或更高版本。
 
 ```bash
+git clone https://github.com/isagoakira/promo-workflow-mcp.git
+cd promo-workflow-mcp
 npm install
 npm run build
-npm start
 ```
 
-服务默认把状态写入 `data/workflows.json`。该目录已被 Git 忽略；如需把数据移到其他位置，设置 `PROMO_WORKFLOW_DATA_DIR` 环境变量即可。
-
-材料卡、大纲、母稿、分镜、口播、录制执行、前期素材执行包、SRT、预览等内容先存入同目录的 `data/artifacts/`。每份工件不可变，带 SHA-256 内容哈希、父工件引用和版本号。与此同时，服务会把每个节点的当前交付物投影到 `data/workspace/<workflowId>/`：例如 `03-creative-outline/outline-script.json`、`04-master/locked-master.json`、`04-master/spoken-script.json`、`04-master/recording-execution.json`、`05-requirements/preproduction-material-plan.json`。固定路径方便下一位 Agent 直接读取；同目录的 `*.artifact_<id>.json` 保留精确制品版本，`manifest.json` 列出全部可用交付物。
-
-任何支持 stdio MCP 的 Agent 都可以直接使用根目录的 [`.mcp.json`](.mcp.json)。它暴露四个稳定工具：
-
-- `promo_get`：读取一个流程或列出全部流程；
-- `promo_guidance`：按当前节点加载 MCP 内置的完整流程、文风或分镜指导；
-- `promo_run`：推进当前节点中无需确认的自动步骤；
-- `promo_commit`：创建流程或写入一次经过确认的决策。
-
-工具调用使用 `expectedRevision` 与 `idempotencyKey`：前者避免并发覆盖，后者保证 Agent 重试不会重复推进流程。
-
-### Cut Workbench 执行接口
-
-视频流程默认使用 Cut Workbench。根目录 [`.mcp.json`](.mcp.json) 已同时配置 Promo 与 Workbench：前者在制作节点调用后者的公开 stdio MCP 接口，后者仍是剪辑工程、九阶段生产、验证与交付的唯一真相源。
-
-当前本机配置把 Workbench 源码设为 `D:/Files/工作/智悦/太忆空间素材/cut-workbench`，运行状态写入同级的 `cut-workbench-runtime/`。启动 Promo 前，请先确认 Workbench 可运行：
-
-```powershell
-Set-Location D:/Files/工作/智悦/太忆空间素材/cut-workbench
-$env:PYTHONPATH = "src"
-python -m cut_workbench.cli --root D:/Files/工作/智悦/太忆空间素材/cut-workbench-runtime list-tools
-```
-
-Promo 在所有制作单元 accepted 后创建或复用一个稳定的 Workbench 工程，并初始化其九阶段生产工作流。此时 Agent 应继续通过 `cut_workbench` MCP 执行工程编辑、阶段验收、终剪、最终 SRT 与交付验证；完成后再次调用 `promo_run` 同步项目 revision。只有 Workbench 的 `09-final` 已批准、工程通过 `delivered`/`handed_off` 门禁、且存在终稿视频和最终字幕时，Promo 才允许 `lock_production`。
-
-### 第一节点：最小选材配置
-
-创建流程时，在 `promo_commit(kind=create_workflow)` 的 `context` 中提供产品卡与来源池；随后调用一次 `promo_run`。服务返回一个 `fetchBrief`，由当前 Agent 使用自己的 Web Fetch 或浏览器能力读取来源。来源可标为 RSS/Atom（推荐）或 HTML，标签仅用于指导抓取策略。
+根目录的 [`.mcp.json`](.mcp.json) 已包含 `promo_workflow`。任何支持 stdio MCP 的客户端都可以指向它：
 
 ```json
 {
-  "productProfile": {
-    "productName": "产品名",
-    "positioning": "一句定位",
-    "capabilities": ["能力一", "能力二"],
-    "activeCampaignLines": ["当前宣传口径一", "当前宣传口径二"],
-    "recentMessaging": ["最近强调的表达"],
-    "targetAudience": "目标用户"
-  },
-  "topicSources": [
-    {
-      "id": "industry-rss",
-      "label": "行业资讯",
-      "kind": "rss",
-      "url": "https://example.com/feed.xml",
-      "weight": 1
+  "mcpServers": {
+    "promo_workflow": {
+      "command": "node",
+      "args": ["./packages/promo-mcp/dist/index.js"],
+      "cwd": ".",
+      "env": { "PROMO_WORKFLOW_DATA_DIR": "data" }
     }
-  ]
+  }
 }
 ```
 
-Agent 完成抓取后，以 `promo_commit(kind=submit_fetched_topics)` 回填 1–50 张紧凑材料卡：`sourceId`、`title`、`url`、`excerpt`，以及可选 `publishedAt`。再调用一次 `promo_run`，服务会对每个候选题同时计算“产品能否承接”和“当下话题强度”，返回最多三个候选。确认后以 `promo_commit(kind=select_topic)` 提交该卡的 `topicId` 与保留的素材引用。
+在 Claude Code 中，进入仓库后启动 `claude`，首次出现提示时批准 `promo_workflow` 即可。其他客户端使用相同的 stdio 配置。`data/` 会自动生成并被 Git 忽略。
 
-`fetchBrief` 同时是通用 `agentWork` 胶囊：它包含任务 ID、阶段、输入、约束、期望输出、校验规则和下一条提交类型。基调、创意大纲、母版、制作与包装均已复用这一结构，不依赖 Codex 专有能力。
+> `.mcp.json` 里的 `cut_workbench` 是可选的视频制作后端示例；它需要你自己配置本机的 Cut Workbench 路径。只使用文章、策划或素材规划时，`promo_workflow` 本身不依赖它。
 
-## 流程图
+### 2. 告诉 Agent 你要做什么
 
-当前已确认七个大节点：
+连接 MCP 后，直接给 Agent 一段正常的制作需求即可，例如：
 
-```text
-选材：NEEDS_PROFILE -> READY -> FETCHING -> MATCHING -> AWAITING_SELECTION -> TOPIC_LOCKED
-基调：TOPIC_LOCKED -> ALIGNING_BASELINE -> BASELINE_LOCKED
-创意与大纲：BASELINE_LOCKED -> GENERATING_CREATIVE -> ALIGNING_OUTLINE -> OUTLINE_LOCKED
-母版细化：OUTLINE_LOCKED -> GENERATING_MASTER -> ALIGNING_MASTER -> MASTER_LOCKED
-需求编译：MASTER_LOCKED -> COMPILING_REQUIREMENTS -> REQUIREMENTS_READY
-人工审核：REQUIREMENTS_READY -> AWAITING_HUMAN_REVIEW -> PRODUCING
-制作：PRODUCING -> PRODUCTION_LOCKED
-发布包装：PRODUCTION_LOCKED -> PACKAGING -> RELEASE_READY
-```
+> 为「产品名」做一篇 2,000–3,500 字的公众号文章。目标读者是正在评估 AI 工作流的产品团队；先从近期行业热点里选一个有真实产品承接的切口。产品能力是……，近期宣传口径是……，可参考来源有……。请用 Promo Workflow 创建流程，并在每个需要我决定的节点停下来。
 
-当前宣传口径允许同时启用 2–3 条。
+Agent 会使用 `promo_commit` 创建流程、使用 `promo_run` 运行自动步骤，并在服务返回 `pendingAction` 时向你索取真正需要确认的信息。你不必手动背诵状态名或拼装文件。
 
-七个节点共用同一条可恢复链路。创意和母版先提交草案，再按有限 Grill 锁定；节点 5 自动把主稿素材使用位编译成最小需求集和视频 SRT；随后系统冻结版本并进入 `AWAITING_HUMAN_REVIEW`，将节点 1–5 已通过材料、决策与 Grill 历史、候选竞争报告、证据链和素材需求顺序汇编为 `00-control/current-review.md`。只有绑定该 revision 的结构化人工批准才能进入节点 6；退回会保留旧制品追溯链并从指定节点 2–5 重启，拒绝则终止当前方案。节点 6 只允许更新既有制作单元，全部验收后才可锁定；节点 7 的标题、封面和发布文本必须引用锁定制作证据。
-
-基调节点从一个具体读者场景开始。`promo_run` 返回一张决策卡，Agent 通过 `propose_baseline` 提交宣传核心、用户引导意图和 `campaignIntent`（即时收益、长期价值、要改变的认知、要展示的证据、表达边界、CTA）。每轮最多一个场景化 Grill；用户回答后会写入 `00-control/decision-ledger.json`，Agent 必须提交一版声明已吸收该决定的修订稿，才能 `lock_baseline`。
-
-创意与大纲节点不再直接吐出“痛点—机制—CTA”模板。它先通过 `propose_creative_routes` 提出 2–3 条互斥的场景路线（开场、张力、证明方式、读者变化），用户用 `select_creative_route` 选定一条；Agent 才展开大纲。视频锁定时会额外生成 `outline-script.json`：每段明确叙事任务、口播方向、可见承诺、证明目标和转场，作为创意到分镜之间不可跳过的桥。推文每一节强制说明段落任务、场景/动作、读者变化、证据、作者判断和不该写什么。场景 Grill 的回答同样必须触发一版新大纲。视频支持 2/5/10 分钟，推文支持 800–1,500、2,000–3,500、4,000–6,000 字三档。
-
-母版细化节点整稿先行：视频生成完整时间轴分镜母版，推文生成完整文章母稿。视频每个有台词镜头必须标记 `CAM`、`VO` 或 `MIXED`，并写明具体录制方向；锁定后服务从同一份事实源投影出 `04-master/spoken-script.json` 与 `04-master/recording-execution.json`，不会为它们另编事实。每版母稿都必须附一份独立的 `04-master/master-review.json`，记录文风、证据、素材复用与视频分镜审校；若 Grill 改变主稿，修订版及审校单都会保留。它默认自动修复，只对阻塞性决策 Grill，并由 `geek-product-promo-writing` 与 `storyboard-direction` 分别监督文字和分镜。共享素材按 `source asset -> fragment -> usage` 规划，普通素材至少两个有效使用位，必要的一次性素材必须说明理由。
-
-需求编译节点完全自动，将消费侧使用位合并为最小、工具无关的素材需求集，并从视频母版派生 SRT。视频只生成一份 `05-requirements/preproduction-material-plan.json`：它以高复用母素材组织全量前期工作，同时锁定演示环境、连续采集路径、可见验收状态、剪辑余量、备份与事实性降级边界；CAM/VO 已在 Node 4 锁定，不在此重复编写。`05-requirements/material-requirements.json` 会显式记录它由哪一版锁定主稿派生；随后 `00-control/current-review.md` 连同带版本号的 `00-control/reviews/` 历史包交给人工审核，实际拍摄、AI 生成、剪辑和工具选择只能在批准后进入制作节点。
-
-制作节点共用 `PRODUCING -> PRODUCTION_LOCKED` 和极简 `production_unit` 生命周期。每次单元更新都会写入 `06-production/production-checkpoint.json`，包含计划、实时状态、验收制品与来源；调用文章/视频后端时再写入 `06-production/backend-handoff.json`。因此制作过程不再只有最终锁定结果，任一 Agent 都能从检查点恢复、审阅或退回对应单元。
-
-- 推文：从锁定母稿自动生成单平台的有序内容块文档、素材清单和本地预览类似物；预览确认后锁定。
-- 视频 / Cut Workbench：桥返回已验证项目版本、成品与最终字幕后锁定。
-- 视频 / VectCut：把时间轴素材和 Node 5 的 SRT 写入可编辑草稿；编辑器审核后锁定为 `editable_draft`，绝不称作已导出的成片。
-
-无论哪种后端，改动都不是绕过流程直接覆盖：将相关制作单元退回执行、更新已验收制品，再由 `promo_run` 创建新的后端版本。Promo 只保存后端引用、一个待处理人工动作和最终产物 ID。
-
-### VectCut：低门槛视频执行器
-
-在创建视频流程时，将 `context.videoBackend` 设为 `"vectcut"`。在制作单元更新时一并提交 `vectcutMediaSources`：每一条锁定的 `assetUsageId` 对应一个可访问的视频 URL。
+若希望从 API/自动化入口创建流程，核心输入是：
 
 ```json
 {
-  "videoBackend": "vectcut",
-  "vectcutMediaSources": [
-    { "usageId": "usage-1", "videoUrl": "http://127.0.0.1:8080/demo.mp4" }
-  ]
+  "kind": "create_workflow",
+  "carrier": "article",
+  "summary": "面向产品团队的工作流文章",
+  "context": {
+    "productProfile": {
+      "productName": "产品名",
+      "positioning": "一句话定位",
+      "capabilities": ["能力一", "能力二"],
+      "activeCampaignLines": ["当前口径一", "当前口径二"],
+      "targetAudience": "目标读者"
+    },
+    "topicSources": [
+      {
+        "id": "industry-rss",
+        "label": "行业资讯",
+        "kind": "rss",
+        "url": "https://example.com/feed.xml"
+      }
+    ]
+  },
+  "idempotencyKey": "create-campaign-001"
 }
 ```
 
-Promo 自身不安装 Python、FFmpeg 或剪辑器依赖；适配器只使用 Node 内置 HTTP 请求。VectCut 则是单独启动的本地服务，当前版本需要 Python 3.10 或更高版本及其自身依赖（本机以 Python 3.11 验证）。启动 MCP 前设置 `PROMO_VECTCUT_BASE_URL=http://127.0.0.1:9001` 即可启用该桥。
+网页读取由 Agent 使用自己的浏览器、Web Fetch 或企业检索能力完成；Promo Workflow 记录来源、筛选与后续引用，不偷偷代替宿主联网。
 
-若不希望在宿主安装 VectCut 的 Python 依赖，可直接启动随仓库提供的可选容器：
+### 3. 按流程协作，而不是等一篇“黑箱成稿”
 
-```bash
-docker compose -f docker-compose.vectcut.yml up --build -d
-```
+| 节点 | 自动完成的部分 | 你要确认的部分 | 关键交付物 |
+| --- | --- | --- | --- |
+| 1. 选材与匹配 | 生成抓取简报、聚合材料卡、匹配产品承接度 | 选定主题与保留证据 | 题材卡、匹配结果、选题 |
+| 2. 宣传意图 | 提出可讨论的基线 | 核心信息、要改变的认知、CTA、表达边界 | 宣传意图卡、决策账本 |
+| 3. 创意与大纲 | 生成创意路线和大纲草案 | 选择路线、回答有限 Grill、锁定大纲 | 路线、锁定大纲、大纲脚本 |
+| 4. 母版 | 生成完整文章母稿或视频时间轴母版 | 审核与锁定母版 | 正文/分镜、口播、录制执行稿 |
+| 5. 素材需求 | 从已锁定母版编译最小需求集与视频 SRT | 审阅前期可行性 | 素材需求、前期执行包、SRT |
+| 人工审核 | 汇编并冻结 1–5 的全部依据 | 批准、退回节点 2–5 或拒绝 | `current-review.md` |
+| 6. 制作 | 更新既有制作单元、保留验收证据 | 审核素材和制作结果 | 制作检查点、预览/工程交接 |
+| 7. 发布包装 | 生成可选标题、封面方向与简介/摘要 | 选择并微调发布包 | 标题、封面方向、简介/摘要 |
 
-容器只运行 VectCut HTTP API，提供可下载/导入的编辑草稿；它不把桌面剪映/CapCut 伪装成容器能力。停止它使用 `docker compose -f docker-compose.vectcut.yml down`。
+视频有 2、5、10 分钟三档节奏；口播可以承担产品说明、创始人访谈、使用体验或其他明确的段落功能，而非机械填满时长。文章按平台偏好、读者决策和证据密度组织，支持本地预览类似物。
 
-当 VectCut 运行在容器中时，`videoUrl` 必须能被容器访问。局域网或对象存储地址可直接使用；在 macOS Docker Desktop 上引用宿主素材时使用 `http://host.docker.internal:<端口>/...`，不要使用 `127.0.0.1`。
+## 最关键的控制点：审核包
 
-```text
-制作单元验收
-  -> promo_run 创建草稿、按分镜导入素材与 SRT
-  -> 编辑器内审核
-     -> 要改：update_production_units 回退相关单元，再 promo_run
-     -> 通过：lock_production + vectcutDraftAccepted + vectcutReviewNote
-```
-
-真正的视频导出仍在编辑器中完成；这不改变 MCP 的任务流，也不增加新的公开工具。
-
-发布包装节点自动生成三条标题、两张封面和一版载体化发布文本，只进行一次集中选择与微调。视频使用简介，推文使用摘要并重建最终本地预览类似物。平台接口、精确后台排版、草稿同步、上传和正式发布均不属于当前 MVP。
-
-## 目录
+锁定需求后，流程不会直接跳去制作，而是进入 `AWAITING_HUMAN_REVIEW`。服务会生成：
 
 ```text
-plugins/promo-workflow-guidance/ 可选 Codex 插件：阶段化文风、分镜与流程指导。插件内的 MCP 通过
-`scripts/start-promo-workflow.sh` 转发到本地仓库；在 Codex 环境中设置
-`PROMO_WORKFLOW_ROOT` 指向本仓库根目录即可。启动器会优先使用 Codex 自带的 Node.js，避免依赖
-系统 Node.js。
-packages/contracts/  MCP 与本地服务共享契约
-packages/promo-mcp/  Local MCP adapter
-packages/promo-service/ 状态机与 Injector 实现
-docs/                已确认架构和后续决策
+data/workspace/<workflowId>/
+├── 00-control/
+│   ├── current-review.md              # 当前待审版本
+│   ├── reviews/                       # 每次审核冻结的历史包
+│   ├── decision-ledger.json
+│   └── competition-report.json        # 如启用竞争模式
+├── 01-selection/
+├── 02-campaign-intent/
+├── 03-creative-outline/
+├── 04-master/
+├── 05-requirements/
+├── 06-production/
+└── 07-release/
 ```
 
-网页抓取由 Agent 宿主能力完成；候选题匹配、Cut Workbench/VectCut 调度和 Article Assembler 的具体执行器接在既有状态机节点之后。服务稳定记录它们的输入、确认点与产物引用，不把重型能力强塞进本地安装包。
+审核包会展开对应的制品内容与版本信息，而不只是给一串链接。人工决定必须绑定当前 revision：
+
+- `approve`：解锁制作节点；
+- `revise`：明确退回节点 2、3、4 或 5，历史制品继续可追溯；
+- `reject`：终止当前方案，不让它静默流入制作。
+
+这条门禁是流程正确性的核心：Agent 自己说“审过了”不等于人已经批准。
+
+## 可选的多路径竞争
+
+对低风险、希望多花一点 token 换质量的节点，可在创建流程时开启：
+
+```json
+{
+  "competition": {
+    "enabled": true,
+    "fanout": 3,
+    "selectionMode": "weighted_top_k"
+  }
+}
+```
+
+Agent 此时应生成 2–5 条真正不同的策略路径，使用独立评审做硬约束淘汰与评分，并通过 `submit_competition_report` 保存结果。候选与评审会进入审核包。
+
+没有人工排序数据校准的概率时，服务只允许称为“加权 Top-k”；只有提交完整、已校准概率时才可使用 `calibrated_top_p`。它不会把一次主观评分伪装成 Top-p。
+
+## MCP 工具一览
+
+| 工具 | 用途 |
+| --- | --- |
+| `promo_get` | 查看全部流程或单条流程、当前 revision、下一步动作与制品引用 |
+| `promo_guidance` | 按当前节点读取完整流程、文风、文章或分镜指导 |
+| `promo_run` | 执行该节点无需人工决定的自动步骤 |
+| `promo_commit` | 创建流程，或提交选材、基线、大纲、母版、审核、制作与发布决定 |
+
+每次写操作都带 `expectedRevision` 与 `idempotencyKey`：前者避免并发覆盖，后者让同一个请求可安全重试。把 `promo_get` 返回的 `pendingAction` 交给 Agent 作为下一步的唯一依据，能避免跳过锁定和审核。
+
+## 视频与文章能交付到哪里
+
+### 视频
+
+可稳定规划和交付：叙事大纲、连续分镜、口播稿、录制执行稿、最小素材需求、素材复用关系、SRT、制作单元与验收记录。
+
+可选接入 Cut Workbench 或 VectCut：前者用于项目和阶段化制作，后者用于轻量的可编辑时间线草稿。最终导出仍在你选择的编辑器中完成。
+
+### 文章
+
+可稳定规划和交付：编辑意图、文章结构、完整母稿、证据与视觉证明计划、平台化发布包装，以及可本地审阅的预览类似物。
+
+当前版本不直接登录内容平台、不做后台排版同步，也不自动发布。这样发布权限、平台账号和最终事实责任始终在团队手里。
+
+## 配置与数据
+
+| 项目 | 默认行为 | 可选配置 |
+| --- | --- | --- |
+| 流程与制品数据 | 写入 `data/` | `PROMO_WORKFLOW_DATA_DIR` |
+| 网页抓取 | 由 Agent 宿主执行 | 使用宿主的浏览器或 Web Fetch 能力 |
+| VectCut 草稿 | 未配置时返回能力缺口，不伪造结果 | `PROMO_VECTCUT_BASE_URL` |
+| Cut Workbench | 仅在配置对应环境变量时接入 | `PROMO_CUT_WORKBENCH_ROOT`、`PROMO_CUT_WORKBENCH_SOURCE_DIR` 等 |
+
+核心服务不要求数据库、Docker、平台账号或视频软件。Docker 仅用于可选的 VectCut HTTP 服务，启动方式见 [docker-compose.vectcut.yml](docker-compose.vectcut.yml)。
 
 ## 可选指导插件
 
-`plugins/promo-workflow-guidance/` 与服务一同维护、单独安装。`agentWork.guidance` 只暴露当前节点允许调用的浅 policy 概览和 `promo_guidance` 路由；Agent 必须通过该路由读取 MCP 内置的完整指导。MCP 返回的是完整的流程编排、分镜监督、产品口播策划、`Geek Product Promo Writing` 主技能，以及句子级文风、证据链、公众号、视频包装四份参考资料。推文不再把一整份 AppSo 方法塞进每个阶段，而是按交付物加载六个插件：N2 锁定读者决定、人文中心与作者立场；N3 将其带入文章路线和大纲；N4 扩写主稿并审校；N4/N6 规划和核验视觉证明；N6 审阅本地预览；N7 压缩为标题、封面与摘要。`articleEditorialIntent` 会被写入基线和文章大纲，避免人文中心、贯穿线和情绪弧在后续节点丢失。它们都是编辑方法，不是刊物身份模仿。视频节点还会按需加载不可缩减的“视频前期交付模板契约”（大纲脚本、分镜、口播、录制执行、前期素材执行包的固定章节、字段粒度、交接 ID 与验收）和便于快速定位的单项结构卡。案例中的产品、人物与事实不构成通用规则；其交付结构、分析角度、验收粒度和事实边界才是默认规则。流程正确性不依赖宿主是否安装插件，插件只用于把同一组主题作为宿主级增强挂载。
+仓库内的 [`plugins/promo-workflow-guidance/`](plugins/promo-workflow-guidance/) 提供阶段化的宿主级指导：流程编排、视频前期交付模板、分镜监督，以及按文章节点拆分的编辑方法。它能让支持 Skill 的客户端在创意、写作和分镜时获得更强约束；不安装它，MCP 的状态机、版本和交付物仍然正常工作。
 
-低风险节点可在创建流程的 `context.competition` 中显式开启竞争，例如 `{ "enabled": true, "fanout": 3, "selectionMode": "weighted_top_k" }`。此时 Agent 必须产出不同策略的候选、由独立评审进行硬约束淘汰和加权评分，并通过 `submit_competition_report` 保存结果；所有候选与评审会进入人工审核包。没有基于人工排序数据校准的相对概率时，服务强制称其为“加权 Top-k”，不伪称 Top-p；只有传入完整校准概率及 `selectionMode: "calibrated_top_p"` 时才允许记录 Top-p。
+## 开发、验证与排障
+
+```bash
+npm test
+npm run build
+```
+
+如果客户端看不到工具，先确认已在仓库根目录构建并批准 `promo_workflow`，再查看客户端的 MCP 健康状态。若连接成功但流程无法继续，调用 `promo_get`，不要猜下一步：返回的 `pendingAction` 会说明所需提交、当前 revision 和制品位置。
+
+## 当前边界
+
+- 服务不自行抓取网页，也不绕过宿主的联网权限；
+- 服务不自动拍摄、生成最终视频、替你登录发布平台或替你发布；
+- Agent 可以提出方案、写稿和协调工具，但高影响的审核决定必须由人提交；
+- 外部制作工具不可用时，服务返回明确的能力缺口，而不是声称已经完成制作。
