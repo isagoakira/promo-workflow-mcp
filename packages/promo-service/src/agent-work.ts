@@ -42,7 +42,6 @@ export interface DeliverableTarget {
 }
 
 export const GUIDANCE_IDS = [
-  "promo-workflow-orchestration",
   "promo-writing-supervision",
   "appso-article-contract",
   "appso-human-center-outline",
@@ -105,7 +104,7 @@ export function createAgentWorkCapsule(input: CreateAgentWorkCapsuleInput): Agen
 export function createGuidanceRequest(ids: readonly GuidanceId[] = []): GuidanceRequest {
   return {
     router: "promo_guidance",
-    policies: uniqueGuidanceIds(["promo-workflow-orchestration", ...ids]).map(toPolicy),
+    policies: uniqueGuidanceIds(ids).map(toPolicy),
     plugin: "promo-workflow-guidance",
   };
 }
@@ -116,8 +115,6 @@ function uniqueGuidanceIds(ids: readonly GuidanceId[]): GuidanceId[] {
 
 function toPolicy(id: GuidanceId): GuidancePolicy {
   switch (id) {
-    case "promo-workflow-orchestration":
-      return { id, overview: "按当前节点、制品与版本推进；不得跳过确认或覆盖既有制品。", loadWhen: "每次处理 agentWork 前。" };
     case "promo-writing-supervision":
       return { id, overview: "以具体任务和可验证证据组织技术产品表达，避免功能说明书式宣传。", loadWhen: "宣传意图、创意大纲、文章/口播主稿、标题与简介。" };
     case "appso-article-contract":

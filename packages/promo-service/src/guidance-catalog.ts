@@ -16,12 +16,6 @@ export interface GuidanceGuide {
 }
 
 const CATALOG: Record<GuidanceId, GuidanceGuide> = {
-  "promo-workflow-orchestration": {
-    id: "promo-workflow-orchestration",
-    title: "Promo Workflow Orchestration",
-    content: PROMO_GUIDANCE_DOCUMENTS.orchestration,
-    resources: [],
-  },
   "promo-writing-supervision": {
     id: "promo-writing-supervision",
     title: "Promo Writing Supervision",

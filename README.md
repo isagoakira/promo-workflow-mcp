@@ -194,9 +194,19 @@ Agent 此时应生成 2–5 条真正不同的策略路径，使用独立评审�
 
 核心服务不要求数据库、Docker、平台账号或视频软件。Docker 仅用于可选的 VectCut HTTP 服务，启动方式见 [docker-compose.vectcut.yml](docker-compose.vectcut.yml)。
 
-## 可选指导插件
+## 工作流调用 Skill
 
-仓库内的 [`plugins/promo-workflow-guidance/`](plugins/promo-workflow-guidance/) 提供阶段化的宿主级指导：流程编排、视频前期交付模板、分镜监督，以及按文章节点拆分的编辑方法。它能让支持 Skill 的客户端在创意、写作和分镜时获得更强约束；不安装它，MCP 的状态机、版本和交付物仍然正常工作。
+[`skills/promo-workflow/`](skills/promo-workflow/) 是独立于 MCP 的宿主 Skill。它在用户提出“选题、定位、脚本、制作、审核或发布一条宣传内容”这类工作流任务时触发：先读取 MCP 的当前状态，再只执行状态机允许的调用，并在选择、锁定和人工审核点停下来。MCP 本身只提供状态、版本、制品和变更接口。
+
+在支持本地 Skill 的 Agent 中，将这个目录安装或链接到它的 Skill 目录即可；以 Codex 为例：
+
+```bash
+ln -s "$(pwd)/skills/promo-workflow" "$CODEX_HOME/skills/promo-workflow"
+```
+
+## 可选阶段指导插件
+
+仓库内的 [`plugins/promo-workflow-guidance/`](plugins/promo-workflow-guidance/) 只提供阶段化的创作约束：视频前期交付模板、分镜监督，以及按文章节点拆分的编辑方法。它能让支持 Skill 的客户端在创意、写作和分镜时获得更强约束；不安装它，MCP 的状态机、版本和交付物仍然正常工作。
 
 ## 开发、验证与排障
 

@@ -100,13 +100,13 @@ test("workflow advances with optimistic revisions and idempotency", async () => 
   });
   assert.equal(baselineStarted.state, "ALIGNING_BASELINE");
   assert.equal(baselineStarted.agentWork.stage, "baseline_alignment");
-  assert.deepEqual(baselineStarted.agentWork.guidance.policies.map((policy) => policy.id), ["promo-workflow-orchestration", "promo-writing-supervision", "appso-article-contract"]);
+  assert.deepEqual(baselineStarted.agentWork.guidance.policies.map((policy) => policy.id), ["promo-writing-supervision", "appso-article-contract"]);
   assert.equal(baselineStarted.agentWork.inputs.competition.fanout, 2);
   const guidance = await service.guidance(baselineStarted.workflowId);
-  assert.deepEqual(guidance.guides.map((guide) => guide.id), ["promo-workflow-orchestration", "promo-writing-supervision", "appso-article-contract"]);
-  assert.match(guidance.guides[1].content, /Geek Product Promo Writing/);
-  assert.equal(guidance.guides[1].resources.length, 5);
-  assert.match(guidance.guides[1].resources[1].content, /中文句子级去 AI 味规则/);
+  assert.deepEqual(guidance.guides.map((guide) => guide.id), ["promo-writing-supervision", "appso-article-contract"]);
+  assert.match(guidance.guides[0].content, /Geek Product Promo Writing/);
+  assert.equal(guidance.guides[0].resources.length, 5);
+  assert.match(guidance.guides[0].resources[1].content, /中文句子级去 AI 味规则/);
   await assert.rejects(
     service.guidance(baselineStarted.workflowId, ["promo-storyboard-supervision"]),
     /不允许加载指导/,
