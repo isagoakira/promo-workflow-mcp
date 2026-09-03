@@ -1,9 +1,9 @@
 ---
-name: promo-workflow
-description: "Run or resume a promotional video or article campaign through the connected promo_workflow MCP. Use when the user wants a managed workflow for material selection, positioning, outline, script, production, review, or release packaging; do not use for a standalone creative request."
+name: promo-video-article-workflow
+description: "Use the connected promo_workflow MCP for a managed product-promotion video or public-account article workflow. Trigger before material selection, positioning, outline, script, production, review, or release packaging; do not use for a standalone creative draft."
 ---
 
-# Promo Workflow
+# Video & Article Promo Workflow
 
 Use this Skill as the campaign entry point. `promo_workflow` supplies the state, artifacts, and mutations; this Skill makes those calls deliberate, ordered, and reviewable. It does not replace the stage-specific writing, storyboard, or delivery guidance.
 

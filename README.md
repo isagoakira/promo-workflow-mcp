@@ -194,15 +194,13 @@ Agent 此时应生成 2–5 条真正不同的策略路径，使用独立评审�
 
 核心服务不要求数据库、Docker、平台账号或视频软件。Docker 仅用于可选的 VectCut HTTP 服务，启动方式见 [docker-compose.vectcut.yml](docker-compose.vectcut.yml)。
 
-## 工作流调用 Skill
+## 自动安装的工作流 Skill
 
-[`skills/promo-workflow/`](skills/promo-workflow/) 是独立于 MCP 的宿主 Skill。它在用户提出“选题、定位、脚本、制作、审核或发布一条宣传内容”这类工作流任务时触发：先读取 MCP 的当前状态，再只执行状态机允许的调用，并在选择、锁定和人工审核点停下来。MCP 本身只提供状态、版本、制品和变更接口。
+[`promo-video-article-workflow`](plugins/promo-workflow-guidance/skills/promo-video-article-workflow/) 是独立于 MCP 的宿主 Skill。它在用户提出“为产品做视频或推文的选题、定位、脚本、制作、审核或发布”这类受管流程任务时触发：先读取 MCP 的当前状态，再只执行状态机允许的调用，并在选择、锁定和人工审核点停下来。MCP 本身只提供状态、版本、制品和变更接口。
 
-在支持本地 Skill 的 Agent 中，将这个目录安装或链接到它的 Skill 目录即可；以 Codex 为例：
+它与 `promo_workflow` MCP 位于同一个插件包。Codex 安装 `promo-workflow-guidance` 时会同时安装这个 Skill 和 MCP，不需要手工链接 Skill 目录。其他 MCP 宿主仍可使用根目录的 [`.mcp.json`](.mcp.json)，但是否自动安装 Skill 取决于该宿主自己的插件机制。
 
-```bash
-ln -s "$(pwd)/skills/promo-workflow" "$CODEX_HOME/skills/promo-workflow"
-```
+在 Codex 中可显式写 `$promo-video-article-workflow`；正常的视频/推文宣发策划请求也会自动匹配它。
 
 ## 可选阶段指导插件
 

@@ -1,4 +1,0 @@
-interface:
-  display_name: "Promo Workflow"
-  short_description: "Drive a promotion campaign through its MCP workflow"
-  default_prompt: "Use Promo Workflow to show the active campaign state and guide the next allowed action."

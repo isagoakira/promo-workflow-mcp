@@ -1,0 +1,4 @@
+interface:
+  display_name: "视频/推文宣发工作流"
+  short_description: "通过 MCP 推进视频或推文的完整策划流程"
+  default_prompt: "使用视频/推文宣发工作流查看当前活动状态，并执行下一项允许动作。"
