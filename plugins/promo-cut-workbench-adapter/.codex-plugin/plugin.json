@@ -1,6 +1,6 @@
 {
   "name": "promo-cut-workbench-adapter",
-  "version": "0.1.0",
+  "version": "0.1.0+codex.20260903075806",
   "description": "Optional Cut Workbench production adapter for Promo Workflow video production.",
   "author": {
     "name": "Local developer"
@@ -8,12 +8,15 @@
   "skills": "./skills/",
   "mcpServers": "./.mcp.json",
   "interface": {
-    "displayName": "Cut Workbench 制作适配器",
-    "shortDescription": "将已锁定的视频制作单元交给本地 Cut Workbench。",
-    "longDescription": "安装后声明 Cut Workbench 适配能力并提供其 MCP 配置。仍需填写本机 Cut Workbench 路径；未配置时流程会明确停在能力缺口。",
+    "displayName": "Cut Workbench \u5236\u4f5c\u9002\u914d\u5668",
+    "shortDescription": "\u5c06\u5df2\u9501\u5b9a\u7684\u89c6\u9891\u5236\u4f5c\u5355\u5143\u4ea4\u7ed9\u672c\u5730 Cut Workbench\u3002",
+    "longDescription": "\u5b89\u88c5\u540e\u58f0\u660e Cut Workbench \u9002\u914d\u80fd\u529b\u5e76\u63d0\u4f9b\u5176 MCP \u914d\u7f6e\u3002\u8fd0\u884c npm run setup:cut-workbench \u540e\u4f1a\u81ea\u52a8\u8bfb\u53d6\u7528\u6237\u7ea7\u672c\u673a\u914d\u7f6e\uff1b\u672a\u914d\u7f6e\u65f6\u6d41\u7a0b\u4f1a\u660e\u786e\u505c\u5728\u80fd\u529b\u7f3a\u53e3\u3002",
     "developerName": "Local developer",
     "category": "Productivity",
-    "capabilities": ["Cut Workbench production adapter", "Agent-facing Cut Workbench MCP"],
-    "defaultPrompt": "检查当前 Promo Workflow 的 Cut Workbench 适配器是否已配置。"
+    "capabilities": [
+      "Cut Workbench production adapter",
+      "Agent-facing Cut Workbench MCP"
+    ],
+    "defaultPrompt": "\u68c0\u67e5\u5f53\u524d Promo Workflow \u7684 Cut Workbench \u9002\u914d\u5668\u662f\u5426\u5df2\u914d\u7f6e\u3002"
   }
 }

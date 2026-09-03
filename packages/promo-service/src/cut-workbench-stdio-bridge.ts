@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
+import { configuredCutWorkbench } from "./cut-workbench-config.js";
 
 import type {
   CutWorkbenchBridge,
@@ -50,12 +51,13 @@ export class CutWorkbenchStdioBridge implements CutWorkbenchBridge {
   constructor(private readonly options: CutWorkbenchStdioBridgeOptions) {}
 
   static fromEnvironment(environment: NodeJS.ProcessEnv = process.env): CutWorkbenchStdioBridge | undefined {
-    const root = nonEmpty(environment.PROMO_CUT_WORKBENCH_ROOT);
-    const sourceDir = nonEmpty(environment.PROMO_CUT_WORKBENCH_SOURCE_DIR);
-    if (!root || !sourceDir) return undefined;
+    const configured = configuredCutWorkbench(environment);
+    if (!configured) return undefined;
 
-    const config = nonEmpty(environment.PROMO_CUT_WORKBENCH_CONFIG);
-    const python = nonEmpty(environment.PROMO_CUT_WORKBENCH_PYTHON) ?? "python";
+    const root = configured.runtimeDirectory;
+    const sourceDir = configured.sourceDirectory;
+    const config = configured.runtimeConfigPath;
+    const python = configured.pythonPath ?? "python";
     const inheritedPythonPath = environment.PYTHONPATH;
     const pythonPath = inheritedPythonPath ? `src${pathSeparator()}${inheritedPythonPath}` : "src";
     return new CutWorkbenchStdioBridge({

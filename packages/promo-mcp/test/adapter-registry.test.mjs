@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -32,4 +32,29 @@ test("reports installed adapter configuration separately from environment fallba
   assert.equal(configuredVectCut?.installed, true);
   assert.equal(configuredVectCut?.available, true);
   assert.equal(configuredVectCut?.mode, "plugin");
+});
+
+test("uses the durable local configuration for an installed Cut Workbench adapter", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "promo-cut-adapter-"));
+  const configHome = await mkdtemp(join(tmpdir(), "promo-cut-config-"));
+  await writeFile(join(directory, "promo-workflow.adapter.json"), JSON.stringify({
+    schemaVersion: 1,
+    id: "cut-workbench",
+    capability: "cut_workbench",
+    displayName: "Cut Workbench",
+    requiredEnv: ["PROMO_CUT_WORKBENCH_ROOT", "PROMO_CUT_WORKBENCH_SOURCE_DIR"],
+    optionalEnv: [],
+    remediation: "Configure Cut Workbench.",
+  }));
+  await mkdir(join(configHome, "promo-workflow"));
+  await writeFile(join(configHome, "promo-workflow", "local.json"), JSON.stringify({
+    schemaVersion: 1,
+    cutWorkbench: { sourceDirectory: "/workbench/source", runtimeDirectory: "/workbench/runtime" },
+  }));
+
+  const adapters = discoverAdapterStatus({ environment: { XDG_CONFIG_HOME: configHome }, adapterDirs: [directory] });
+  const cutWorkbench = adapters.find((adapter) => adapter.capability === "cut_workbench");
+  assert.equal(cutWorkbench?.available, true);
+  assert.equal(cutWorkbench?.configurationSource, "local_config");
+  assert.deepEqual(cutWorkbench?.missingEnvironment, []);
 });

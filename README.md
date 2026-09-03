@@ -27,27 +27,48 @@ Promo Workflow 用一个可恢复的状态机承接这些决定：
 
 它适合“Agent 参与内容生产，但人必须掌握创意与发布责任”的团队。不适合把它当作自动发布器、网页爬虫或一键视频生成器：抓取、拍摄、AI 生成、剪辑和平台发布仍由接入的宿主或制作工具完成。
 
-## 5 分钟上手
+## 新手上手：先选一条路径
 
-### 1. 安装并构建
+| 你要完成什么 | 安装内容 | 是否需要剪辑软件 |
+| --- | --- | --- |
+| 策划、脚本、推文 | 基础包 | 不需要 |
+| 视频策划与可编辑草稿 | 基础包 + VectCut 适配器 | 可选 |
+| 完整视频制作、版本审核与剪映协作 | 基础包 + Cut Workbench 适配器 | 剪映同步仅在最后一项高级验证中需要 |
 
-唯一前置条件是 Node.js 20 或更高版本。
+### 1. 所有用户：构建并登记本机路径
+
+需要 Node.js 20+。只有在安装 Cut Workbench 时才额外需要 Git 和 Python 3.11+。
+
+macOS、Linux 和 Windows PowerShell 都使用同一组命令：
 
 ```bash
 git clone https://github.com/isagoakira/promo-workflow-mcp.git
 cd promo-workflow-mcp
 npm install
 npm run build
+npm run setup
 ```
 
-如果使用 Codex 插件，基础安装只需执行一次：
+最后一条命令会写入一个用户级配置文件，让已安装的插件能找到这个构建后的仓库：
+
+| 系统 | 默认配置位置 |
+| --- | --- |
+| Windows | `%APPDATA%\\promo-workflow\\local.json` |
+| macOS | `~/Library/Application Support/promo-workflow/local.json` |
+| Linux | `$XDG_CONFIG_HOME/promo-workflow/local.json`，未设置时为 `~/.config/promo-workflow/local.json` |
+
+它不会写入 shell profile，也不要求你手填环境变量。环境变量只保留给 CI、容器或团队自动化覆盖本机配置。
+
+### 2. Codex 用户：安装基础包
 
 ```bash
 codex plugin marketplace add "$(pwd)"
 codex plugin add promo-video-article-workflow@promo-workflow
 ```
 
-这会同时安装 `promo_workflow` MCP 和 `$promo-video-article-workflow` 入口 Skill。需要文章方法、视频前期或制作后端时，再从同一 marketplace 安装对应的可选包。
+基础包会同时安装 `promo_workflow` MCP 和 `$promo-video-article-workflow` 入口 Skill。安装完成后新开一个 Codex 任务，使新的 MCP 与 Skill 被加载。
+
+需要文章方法、视频前期或制作后端时，再从同一 marketplace 安装对应的可选包；不装它们不影响选题、写作和审核流程。
 
 根目录的 [`.mcp.json`](.mcp.json) 已包含 `promo_workflow`。任何支持 stdio MCP 的客户端都可以指向它：
 
@@ -66,9 +87,9 @@ codex plugin add promo-video-article-workflow@promo-workflow
 
 在 Claude Code 中，进入仓库后启动 `claude`，首次出现提示时批准 `promo_workflow` 即可。其他客户端使用相同的 stdio 配置。`data/` 会自动生成并被 Git 忽略。
 
-> `.mcp.json` 里的 `cut_workbench` 是可选的视频制作后端示例；它需要你自己配置本机的 Cut Workbench 路径。只使用文章、策划或素材规划时，`promo_workflow` 本身不依赖它。
+> 根目录的 `.mcp.json` 只注册 `promo_workflow`。Cut Workbench 通过独立插件接入；执行 `npm run setup:cut-workbench` 后，插件会自动读取本机配置。只使用文章、策划或素材规划时，不需要安装它。
 
-### 2. 告诉 Agent 你要做什么
+### 3. 告诉 Agent 你要做什么
 
 连接 MCP 后，直接给 Agent 一段正常的制作需求即可，例如：
 
@@ -186,6 +207,45 @@ Agent 此时应生成 2–5 条真正不同的策略路径，使用独立评审�
 
 可选接入 Cut Workbench 或 VectCut：前者用于项目和阶段化制作，后者用于轻量的可编辑时间线草稿。最终导出仍在你选择的编辑器中完成。
 
+#### 轻量路径：VectCut
+
+安装 `promo-vectcut-adapter` 并配置一个可访问的本地 VectCut 服务后，工作流会把已接受的素材、锁定时间线和 SRT 生成一份可编辑草稿。人工可在剪映/CapCut 中审阅；需要内容改动时，工作流回退受影响的制作单元并生成一份新的草稿。
+
+这条路径强调低安装门槛，不读取或增量改写已有剪映工程。
+
+#### 完整路径：Cut Workbench
+
+先安装插件，再运行一条配置命令：
+
+```bash
+codex plugin add promo-cut-workbench-adapter@promo-workflow
+npm run setup:cut-workbench
+```
+
+配置器会自动：拉取 Cut Workbench 的 `master` 分支、选择 Python 3.11+、创建独立运行目录、写入用户级配置，并运行 MCP 健康检查。它不会安装剪映、codec 或修改任何剪映工程。
+
+Cut Workbench 仓库目前是私有仓库；执行者需要相应的 GitHub 访问权限。已有受控源码副本时，改用：
+
+```bash
+npm run setup:cut-workbench -- --source-dir /path/to/CutWorkBench
+```
+
+Windows PowerShell 示例：
+
+```powershell
+npm run setup:cut-workbench -- --source-dir D:\projects\CutWorkBench --runtime-dir D:\promo-workflow\cut-runtime --python C:\Python311\python.exe
+```
+
+成功后，在新的 Codex 任务中让 Agent 调用 `promo_get`。当返回以下状态，视频制作后端才算真正接通：
+
+```text
+adapterStatus.cut_workbench.installed = true
+adapterStatus.cut_workbench.available = true
+adapterStatus.cut_workbench.configurationSource = "local_config"
+```
+
+只有需要“Agent 与剪映工程双端反复修改”时，再进行高级验证：准备一份可复制的剪映专业版 11.3 测试工程，配置并固定 codec sidecar 的版本/哈希，再完成一次 `sync.open → sync.preview → sync.commit → sync.publish`。发布动作只生成工程副本，不覆盖原工程。
+
 ### 文章
 
 可稳定规划和交付：编辑意图、文章结构、完整母稿、证据与视觉证明计划、平台化发布包装，以及可本地审阅的预览类似物。
@@ -196,10 +256,11 @@ Agent 此时应生成 2–5 条真正不同的策略路径，使用独立评审�
 
 | 项目 | 默认行为 | 可选配置 |
 | --- | --- | --- |
+| 工作流本机位置 | `npm run setup` 写入用户级配置 | `PROMO_WORKFLOW_ROOT`、`PROMO_WORKFLOW_NODE` 仅用于自动化覆盖 |
 | 流程与制品数据 | 写入 `data/` | `PROMO_WORKFLOW_DATA_DIR` |
 | 网页抓取 | 由 Agent 宿主执行 | 使用宿主的浏览器或 Web Fetch 能力 |
 | VectCut 草稿 | 安装 VectCut 适配包且未配置时返回能力缺口，不伪造结果 | `PROMO_VECTCUT_BASE_URL` |
-| Cut Workbench | 安装 Cut Workbench 适配包且未配置时返回能力缺口 | `PROMO_CUT_WORKBENCH_ROOT`、`PROMO_CUT_WORKBENCH_SOURCE_DIR` 等 |
+| Cut Workbench | `npm run setup:cut-workbench` 写入本机配置并自检 | `PROMO_CUT_WORKBENCH_*` 仅用于自动化覆盖 |
 | 外部适配器 | Codex 自动识别已安装的适配包；其他宿主可显式提供适配器目录 | `PROMO_WORKFLOW_ADAPTER_DIRS` |
 
 核心服务不要求数据库、Docker、平台账号或视频软件。Docker 仅用于可选的 VectCut HTTP 服务，启动方式见 [docker-compose.vectcut.yml](docker-compose.vectcut.yml)。
@@ -221,7 +282,7 @@ Agent 此时应生成 2–5 条真正不同的策略路径，使用独立评审�
 | `promo-product-writing` | 视频或推文的创意、大纲、母稿、标题与简介 | 增加证据与文风监督 |
 | `promo-article-appso` | 公众号文章的编辑契约、结构、主稿、视觉证明与预览 | 增加文章编辑方法 |
 | `promo-video-preproduction` | 视频大纲、口播、分镜、前期素材执行包 | 增加视频前期交付约束 |
-| `promo-cut-workbench-adapter` | 接入本机 Cut Workbench 制作 | 提供 Cut Workbench MCP 与制作桥接配置 |
+| `promo-cut-workbench-adapter` | 接入本机 Cut Workbench 制作 | 读取 `npm run setup:cut-workbench` 生成的用户级配置 |
 | `promo-vectcut-adapter` | 生成 VectCut 可编辑草稿 | 提供 VectCut HTTP 制作桥接配置 |
 
 `promo_get` 会返回当前节点所需指导包的提示，以及 `adapterStatus`：每个制作适配器的安装、配置和可用状态。未安装或未配置时，服务保持在可审阅的能力缺口，而不会虚构制作完成。
@@ -233,7 +294,7 @@ npm test
 npm run build
 ```
 
-如果客户端看不到工具，先确认已在仓库根目录构建并批准 `promo_workflow`，再查看客户端的 MCP 健康状态。若连接成功但流程无法继续，调用 `promo_get`，不要猜下一步：返回的 `pendingAction` 会说明所需提交、当前 revision 和制品位置。
+如果客户端看不到工具，先在仓库根目录重新执行 `npm run build && npm run setup`，再重新安装/重启对应插件并新开一个任务。若连接成功但流程无法继续，调用 `promo_get`，不要猜下一步：返回的 `pendingAction` 会说明所需提交、当前 revision 和制品位置；`adapterStatus` 会说明制作后端是未安装、未配置还是已可用。
 
 ## 当前边界
 

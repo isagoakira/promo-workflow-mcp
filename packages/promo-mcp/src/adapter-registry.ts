@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, join } from "node:path";
+import { configuredCutWorkbench } from "@promo-workflow/service";
 
 export type ProductionAdapterCapability = "cut_workbench" | "vectcut";
 
@@ -22,6 +23,7 @@ export interface ProductionAdapterStatus {
   configured: boolean;
   available: boolean;
   mode: "plugin" | "manual" | "unavailable";
+  configurationSource: "environment" | "local_config" | "missing";
   missingEnvironment: readonly string[];
   remediation: string;
 }
@@ -65,9 +67,16 @@ export function discoverAdapterStatus(options: DiscoverAdapterStatusOptions = {}
   return KNOWN_ADAPTERS.map((fallback) => {
     const descriptor = descriptors.get(fallback.capability);
     const requiredEnv = descriptor?.requiredEnv ?? fallback.requiredEnv;
-    const missingEnvironment = requiredEnv.filter((key) => !nonEmpty(environment[key]));
-    const configured = missingEnvironment.length === 0;
+    const savedCutWorkbench = fallback.capability === "cut_workbench" ? configuredCutWorkbench(environment) : undefined;
+    const configuredFromEnvironment = requiredEnv.every((key) => nonEmpty(environment[key]));
+    const configured = fallback.capability === "cut_workbench"
+      ? Boolean(savedCutWorkbench)
+      : configuredFromEnvironment;
+    const missingEnvironment = configured ? [] : requiredEnv.filter((key) => !nonEmpty(environment[key]));
     const installed = Boolean(descriptor);
+    const configurationSource = configured
+      ? configuredFromEnvironment ? "environment" : "local_config"
+      : "missing";
 
     return {
       id: descriptor?.id ?? fallback.id,
@@ -77,6 +86,7 @@ export function discoverAdapterStatus(options: DiscoverAdapterStatusOptions = {}
       configured,
       available: configured,
       mode: installed ? "plugin" : configured ? "manual" : "unavailable",
+      configurationSource,
       missingEnvironment,
       remediation: descriptor?.remediation ?? fallback.remediation,
     };

@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "cut_workbench": {
-      "command": "sh",
-      "args": ["scripts/start-cut-workbench.sh"],
+      "command": "node",
+      "args": ["scripts/start-cut-workbench.mjs"],
       "cwd": ".",
       "env_vars": [
         "PROMO_CUT_WORKBENCH_ROOT",

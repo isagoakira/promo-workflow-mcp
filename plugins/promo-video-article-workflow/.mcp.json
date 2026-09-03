@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "promo_workflow": {
-      "command": "sh",
-      "args": ["scripts/start-promo-workflow.sh"],
+      "command": "node",
+      "args": ["scripts/start-promo-workflow.mjs"],
       "cwd": ".",
       "env_vars": [
         "PROMO_WORKFLOW_ROOT",
