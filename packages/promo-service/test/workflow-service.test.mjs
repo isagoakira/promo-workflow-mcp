@@ -101,6 +101,7 @@ test("workflow advances with optimistic revisions and idempotency", async () => 
   assert.equal(baselineStarted.state, "ALIGNING_BASELINE");
   assert.equal(baselineStarted.agentWork.stage, "baseline_alignment");
   assert.deepEqual(baselineStarted.agentWork.guidance.policies.map((policy) => policy.id), ["promo-writing-supervision", "appso-article-contract"]);
+  assert.deepEqual(baselineStarted.agentWork.guidance.policies.map((policy) => policy.plugin), ["promo-product-writing", "promo-article-appso"]);
   assert.equal(baselineStarted.agentWork.inputs.competition.fanout, 2);
   const guidance = await service.guidance(baselineStarted.workflowId);
   assert.deepEqual(guidance.guides.map((guide) => guide.id), ["promo-writing-supervision", "appso-article-contract"]);

@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "promo_workflow": {
+      "command": "sh",
+      "args": ["scripts/start-promo-workflow.sh"],
+      "cwd": ".",
+      "env_vars": [
+        "PROMO_WORKFLOW_ROOT",
+        "PROMO_WORKFLOW_NODE",
+        "PROMO_WORKFLOW_ADAPTER_DIRS",
+        "PROMO_VECTCUT_BASE_URL",
+        "PROMO_CUT_WORKBENCH_ROOT",
+        "PROMO_CUT_WORKBENCH_SOURCE_DIR",
+        "PROMO_CUT_WORKBENCH_CONFIG",
+        "PROMO_CUT_WORKBENCH_PYTHON"
+      ]
+    }
+  }
+}

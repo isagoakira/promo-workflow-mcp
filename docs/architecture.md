@@ -16,7 +16,25 @@ Codex / Agent
        -> Local JSON workflow store + immutable artifact store
 ```
 
-The Skill is only a trigger. The local service is the source of truth.
+The workflow driver Skill is the only trigger for managed promotional work. The local service is the source of truth.
+
+## Installable extension boundary
+
+```text
+promo-video-article-workflow (required)
+  -> promo_workflow MCP + workflow driver Skill
+
+optional task packs
+  -> promo-product-writing
+  -> promo-article-appso
+  -> promo-video-preproduction
+
+optional production adapters
+  -> promo-cut-workbench-adapter
+  -> promo-vectcut-adapter
+```
+
+The core state machine never depends on an optional package. An Agent-work capsule names the focused host package for each guidance policy, while `promo_guidance` remains the canonical MCP-owned text. At production, `promo_get` adds `adapterStatus` with each adapter's installation, configuration, availability, and remediation. A missing adapter is a capability gap rather than an implicit fallback.
 
 ## MCP interface
 

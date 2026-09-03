@@ -2,6 +2,7 @@ import { resolve, join } from "node:path";
 import { McpServer } from "@modelcontextprotocol/server";
 import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import * as z from "zod/v4";
+import { discoverAdapterStatus, type ProductionAdapterStatus } from "./adapter-registry.js";
 import {
   JsonWorkflowStore,
   ArtifactStore,
@@ -55,7 +56,11 @@ function errorResponse(error: unknown) {
   };
 }
 
-export function createPromoServer(service: WorkflowService) {
+export interface PromoRuntimeStatus {
+  adapterStatus: readonly ProductionAdapterStatus[];
+}
+
+export function createPromoServer(service: WorkflowService, runtime: PromoRuntimeStatus = { adapterStatus: [] }) {
   const server = new McpServer({
     name: "promo-workflow",
     version: "0.1.0",
@@ -80,8 +85,8 @@ export function createPromoServer(service: WorkflowService) {
       try {
         return response(
           workflowId
-            ? await service.get(workflowId)
-            : { workflows: await service.list() },
+            ? { ...await service.get(workflowId), adapterStatus: runtime.adapterStatus }
+            : { workflows: await service.list(), adapterStatus: runtime.adapterStatus },
         );
       } catch (error) {
         return errorResponse(error);
@@ -212,7 +217,11 @@ async function main() {
     ? new VectCutHttpBridge({ baseUrl: process.env.PROMO_VECTCUT_BASE_URL })
     : undefined;
   const cutWorkbenchBridge = CutWorkbenchStdioBridge.fromEnvironment();
-  const server = createPromoServer(new WorkflowService(store, artifacts, undefined, cutWorkbenchBridge, vectCutBridge, workspace));
+  const adapterStatus = discoverAdapterStatus();
+  const server = createPromoServer(
+    new WorkflowService(store, artifacts, undefined, cutWorkbenchBridge, vectCutBridge, workspace),
+    { adapterStatus },
+  );
   await server.connect(new StdioServerTransport());
 }
 

@@ -22,7 +22,7 @@ Read `pendingAction`, `revision`, `agentWork`, and the referenced artifacts from
 | `pendingAction.type` | Required response |
 | --- | --- |
 | `run` | Call `promo_run` once using the current revision, then work from its returned state. |
-| `agent_work` | Load every guide named by `agentWork.guidance` with `promo_guidance`; make and validate only the requested deliverable; submit only `agentWork.nextCommitKind`. |
+| `agent_work` | Load every guide named by `agentWork.guidance` with `promo_guidance`; use the policy's `plugin` hint to load the matching optional host Skill when installed; make and validate only the requested deliverable; submit only `agentWork.nextCommitKind`. |
 | `commit` | Explain the one decision requested, obtain the user’s decision, then submit only the named commit. |
 | `human_review` | Open the review packet, present its decision, and wait for an explicit human `approve`, `revise`, or `reject` before `submit_human_review`. |
 | no action | Report the terminal result; do not reopen or mutate it. |
@@ -57,9 +57,12 @@ Do not emit a duplicate note for a pure read that leaves the node unchanged. At 
 
 The current capsule decides which specialized Skills apply. Load all of its requested guides before drafting a creative deliverable, but do not load deep writing or production guidance for a status check or a deterministic transition.
 
+- Each policy's `plugin` field identifies the optional capability pack that sharpens this task. Its absence must never be faked: `promo_guidance` remains the canonical, MCP-owned guide and the node still cannot be skipped.
 - Article nodes may request AppSo editorial guidance.
 - Video nodes may request storyboard, voiceover, and delivery-contract guidance.
 - The current Skill remains the caller: specialized Skills shape the deliverable; the MCP state machine decides when it may be committed.
+
+At a production node, inspect `adapterStatus` from `promo_get` before choosing a production path. Only use an adapter whose status is both installed and configured; otherwise surface its capability gap in the node-status note and keep the workflow in its declared review or replanning path.
 
 ## Keep human control clear
 

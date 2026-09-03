@@ -5,10 +5,70 @@
   },
   "plugins": [
     {
-      "name": "promo-workflow-guidance",
+      "name": "promo-video-article-workflow",
       "source": {
         "source": "local",
-        "path": "./plugins/promo-workflow-guidance"
+        "path": "./plugins/promo-video-article-workflow"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    },
+    {
+      "name": "promo-product-writing",
+      "source": {
+        "source": "local",
+        "path": "./plugins/promo-product-writing"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    },
+    {
+      "name": "promo-article-appso",
+      "source": {
+        "source": "local",
+        "path": "./plugins/promo-article-appso"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    },
+    {
+      "name": "promo-video-preproduction",
+      "source": {
+        "source": "local",
+        "path": "./plugins/promo-video-preproduction"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    },
+    {
+      "name": "promo-cut-workbench-adapter",
+      "source": {
+        "source": "local",
+        "path": "./plugins/promo-cut-workbench-adapter"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    },
+    {
+      "name": "promo-vectcut-adapter",
+      "source": {
+        "source": "local",
+        "path": "./plugins/promo-vectcut-adapter"
       },
       "policy": {
         "installation": "AVAILABLE",

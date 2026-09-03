@@ -1,0 +1,18 @@
+{
+  "name": "promo-article-appso",
+  "version": "0.1.0",
+  "description": "Optional AppSo-inspired editorial Skills for Promo Workflow public-account articles.",
+  "author": {
+    "name": "Local developer"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "公众号编辑方法",
+    "shortDescription": "为工作流中的公众号文章提供编辑、证据与预览审校方法。",
+    "longDescription": "只服务 article 载体及其当前节点；不触发视频任务，也不替代 Promo Workflow 的状态、版本和人工确认。",
+    "developerName": "Local developer",
+    "category": "Productivity",
+    "capabilities": ["Article editorial contract", "Article visual proof", "Article preview review"],
+    "defaultPrompt": "按当前 Promo Workflow 节点处理公众号文章编辑任务。"
+  }
+}

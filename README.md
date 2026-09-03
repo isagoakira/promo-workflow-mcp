@@ -40,6 +40,15 @@ npm install
 npm run build
 ```
 
+如果使用 Codex 插件，基础安装只需执行一次：
+
+```bash
+codex plugin marketplace add "$(pwd)"
+codex plugin add promo-video-article-workflow@promo-workflow
+```
+
+这会同时安装 `promo_workflow` MCP 和 `$promo-video-article-workflow` 入口 Skill。需要文章方法、视频前期或制作后端时，再从同一 marketplace 安装对应的可选包。
+
 根目录的 [`.mcp.json`](.mcp.json) 已包含 `promo_workflow`。任何支持 stdio MCP 的客户端都可以指向它：
 
 ```json
@@ -189,22 +198,33 @@ Agent 此时应生成 2–5 条真正不同的策略路径，使用独立评审�
 | --- | --- | --- |
 | 流程与制品数据 | 写入 `data/` | `PROMO_WORKFLOW_DATA_DIR` |
 | 网页抓取 | 由 Agent 宿主执行 | 使用宿主的浏览器或 Web Fetch 能力 |
-| VectCut 草稿 | 未配置时返回能力缺口，不伪造结果 | `PROMO_VECTCUT_BASE_URL` |
-| Cut Workbench | 仅在配置对应环境变量时接入 | `PROMO_CUT_WORKBENCH_ROOT`、`PROMO_CUT_WORKBENCH_SOURCE_DIR` 等 |
+| VectCut 草稿 | 安装 VectCut 适配包且未配置时返回能力缺口，不伪造结果 | `PROMO_VECTCUT_BASE_URL` |
+| Cut Workbench | 安装 Cut Workbench 适配包且未配置时返回能力缺口 | `PROMO_CUT_WORKBENCH_ROOT`、`PROMO_CUT_WORKBENCH_SOURCE_DIR` 等 |
+| 外部适配器 | Codex 自动识别已安装的适配包；其他宿主可显式提供适配器目录 | `PROMO_WORKFLOW_ADAPTER_DIRS` |
 
 核心服务不要求数据库、Docker、平台账号或视频软件。Docker 仅用于可选的 VectCut HTTP 服务，启动方式见 [docker-compose.vectcut.yml](docker-compose.vectcut.yml)。
 
 ## 自动安装的工作流 Skill
 
-[`promo-video-article-workflow`](plugins/promo-workflow-guidance/skills/promo-video-article-workflow/) 是独立于 MCP 的宿主 Skill。它在用户提出“为产品做视频或推文的选题、定位、脚本、制作、审核或发布”这类受管流程任务时触发：先读取 MCP 的当前状态，再只执行状态机允许的调用，并在选择、锁定和人工审核点停下来。MCP 本身只提供状态、版本、制品和变更接口。
+[`promo-video-article-workflow`](plugins/promo-video-article-workflow/skills/promo-video-article-workflow/) 是独立于 MCP 的宿主 Skill。它在用户提出“为产品做视频或推文的选题、定位、脚本、制作、审核或发布”这类受管流程任务时触发：先读取 MCP 的当前状态，再只执行状态机允许的调用，并在选择、锁定和人工审核点停下来。MCP 本身只提供状态、版本、制品和变更接口。
 
-它与 `promo_workflow` MCP 位于同一个插件包。Codex 安装 `promo-workflow-guidance` 时会同时安装这个 Skill 和 MCP，不需要手工链接 Skill 目录。其他 MCP 宿主仍可使用根目录的 [`.mcp.json`](.mcp.json)，但是否自动安装 Skill 取决于该宿主自己的插件机制。
+它与 `promo_workflow` MCP 位于基础包 `promo-video-article-workflow`。Codex 安装这个基础包时会同时安装入口 Skill 和 MCP，不需要手工链接 Skill 目录。其他 MCP 宿主仍可使用根目录的 [`.mcp.json`](.mcp.json)，但是否自动安装 Skill 取决于该宿主自己的插件机制。
 
 在 Codex 中可显式写 `$promo-video-article-workflow`；正常的视频/推文宣发策划请求也会自动匹配它。
 
-## 可选阶段指导插件
+## 可选任务与制作插件
 
-仓库内的 [`plugins/promo-workflow-guidance/`](plugins/promo-workflow-guidance/) 只提供阶段化的创作约束：视频前期交付模板、分镜监督，以及按文章节点拆分的编辑方法。它能让支持 Skill 的客户端在创意、写作和分镜时获得更强约束；不安装它，MCP 的状态机、版本和交付物仍然正常工作。
+基础包负责“何时进入流程、如何推进、何时停下”。以下包只在对应任务和节点出现时增强 Agent，不替代 MCP 的状态权威：
+
+| 插件包 | 适用任务 | 对流程的影响 |
+| --- | --- | --- |
+| `promo-product-writing` | 视频或推文的创意、大纲、母稿、标题与简介 | 增加证据与文风监督 |
+| `promo-article-appso` | 公众号文章的编辑契约、结构、主稿、视觉证明与预览 | 增加文章编辑方法 |
+| `promo-video-preproduction` | 视频大纲、口播、分镜、前期素材执行包 | 增加视频前期交付约束 |
+| `promo-cut-workbench-adapter` | 接入本机 Cut Workbench 制作 | 提供 Cut Workbench MCP 与制作桥接配置 |
+| `promo-vectcut-adapter` | 生成 VectCut 可编辑草稿 | 提供 VectCut HTTP 制作桥接配置 |
+
+`promo_get` 会返回当前节点所需指导包的提示，以及 `adapterStatus`：每个制作适配器的安装、配置和可用状态。未安装或未配置时，服务保持在可审阅的能力缺口，而不会虚构制作完成。
 
 ## 开发、验证与排障
 

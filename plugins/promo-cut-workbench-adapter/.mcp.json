@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "cut_workbench": {
+      "command": "sh",
+      "args": ["scripts/start-cut-workbench.sh"],
+      "cwd": ".",
+      "env_vars": [
+        "PROMO_CUT_WORKBENCH_ROOT",
+        "PROMO_CUT_WORKBENCH_SOURCE_DIR",
+        "PROMO_CUT_WORKBENCH_CONFIG",
+        "PROMO_CUT_WORKBENCH_PYTHON"
+      ]
+    }
+  }
+}

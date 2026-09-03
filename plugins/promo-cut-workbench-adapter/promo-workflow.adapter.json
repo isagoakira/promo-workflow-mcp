@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "id": "cut-workbench",
+  "capability": "cut_workbench",
+  "displayName": "Cut Workbench",
+  "requiredEnv": [
+    "PROMO_CUT_WORKBENCH_ROOT",
+    "PROMO_CUT_WORKBENCH_SOURCE_DIR"
+  ],
+  "optionalEnv": [
+    "PROMO_CUT_WORKBENCH_CONFIG",
+    "PROMO_CUT_WORKBENCH_PYTHON"
+  ],
+  "remediation": "Set the Cut Workbench root and source directory in the adapter plugin configuration."
+}

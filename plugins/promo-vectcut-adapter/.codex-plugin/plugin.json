@@ -1,0 +1,18 @@
+{
+  "name": "promo-vectcut-adapter",
+  "version": "0.1.0",
+  "description": "Optional VectCut editable-draft adapter for Promo Workflow video production.",
+  "author": {
+    "name": "Local developer"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "VectCut 制作适配器",
+    "shortDescription": "将已锁定的视频时间轴交给本地 VectCut 草稿服务。",
+    "longDescription": "安装后声明 VectCut 适配能力。设置本地 HTTP 地址后，Promo Workflow 可创建可编辑草稿并导入已锁定 SRT；它不把草稿伪装成成片。",
+    "developerName": "Local developer",
+    "category": "Productivity",
+    "capabilities": ["VectCut editable-draft adapter"],
+    "defaultPrompt": "检查当前 Promo Workflow 的 VectCut 适配器是否已配置。"
+  }
+}

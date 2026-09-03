@@ -1,0 +1,18 @@
+{
+  "name": "promo-product-writing",
+  "version": "0.1.0",
+  "description": "Optional evidence-led product-promotion writing guidance for an active Promo Workflow.",
+  "author": {
+    "name": "Local developer"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "产品宣发写作",
+    "shortDescription": "为已进入工作流的宣发写作提供证据与文风约束。",
+    "longDescription": "仅在 Promo Workflow 当前节点要求创意大纲、母稿、口播、标题或简介时介入；不创建或推进工作流。",
+    "developerName": "Local developer",
+    "category": "Productivity",
+    "capabilities": ["Cross-carrier promotion writing"],
+    "defaultPrompt": "审阅当前宣传工作流的写作任务与证据边界。"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "id": "vectcut",
+  "capability": "vectcut",
+  "displayName": "VectCut",
+  "requiredEnv": ["PROMO_VECTCUT_BASE_URL"],
+  "optionalEnv": [],
+  "remediation": "Start a compatible local VectCut HTTP service and set PROMO_VECTCUT_BASE_URL."
+}

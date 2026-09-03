@@ -1,0 +1,18 @@
+{
+  "name": "promo-video-preproduction",
+  "version": "0.1.0",
+  "description": "Optional storyboard and pre-production delivery Skills for Promo Workflow videos.",
+  "author": {
+    "name": "Local developer"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "视频前期策划",
+    "shortDescription": "为工作流视频提供分镜监督与前期交付模板。",
+    "longDescription": "只在 video 载体的大纲、母版、分镜和素材规划节点介入；不渲染、剪辑或导出最终视频。",
+    "developerName": "Local developer",
+    "category": "Productivity",
+    "capabilities": ["Storyboard supervision", "Video pre-production delivery contract"],
+    "defaultPrompt": "按当前 Promo Workflow 节点处理视频分镜或前期交付物。"
+  }
+}

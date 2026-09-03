@@ -1,0 +1,19 @@
+{
+  "name": "promo-cut-workbench-adapter",
+  "version": "0.1.0",
+  "description": "Optional Cut Workbench production adapter for Promo Workflow video production.",
+  "author": {
+    "name": "Local developer"
+  },
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Cut Workbench 制作适配器",
+    "shortDescription": "将已锁定的视频制作单元交给本地 Cut Workbench。",
+    "longDescription": "安装后声明 Cut Workbench 适配能力并提供其 MCP 配置。仍需填写本机 Cut Workbench 路径；未配置时流程会明确停在能力缺口。",
+    "developerName": "Local developer",
+    "category": "Productivity",
+    "capabilities": ["Cut Workbench production adapter", "Agent-facing Cut Workbench MCP"],
+    "defaultPrompt": "检查当前 Promo Workflow 的 Cut Workbench 适配器是否已配置。"
+  }
+}

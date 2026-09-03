@@ -53,6 +53,7 @@ export type {
   CreateAgentWorkCapsuleInput,
   GuidanceRequest,
   GuidanceId,
+  GuidancePluginId,
   GuidancePolicy,
 } from "./agent-work.js";
 export type { GuidanceGuide, GuidanceResource } from "./guidance-catalog.js";
