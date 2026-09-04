@@ -157,21 +157,27 @@ async function readWorkflowReview(dataDirectory: string, workflowId: string): Pr
   };
   const deliverables = array(manifest.deliverables) ?? [];
   const artifacts = await Promise.all(deliverables.map(async (value) => readArtifact(workspaceRoot, asRecord(value))));
+  const record = asRecord(asRecord(await readJson(join(dataDirectory, "workflows.json")))?.workflows);
+  const workflowRecord = asRecord(record?.[workflowId]);
+  const agentWork = agentWorkBrief(workflowId, workflow.revision, asRecord(asRecord(workflowRecord?.context)?.agentWork));
 
   const steps: ReviewStep[] = STEPS.map((step) => {
-    const stepArtifacts = artifacts.filter((artifact): artifact is ReviewArtifact => artifact !== null && step.kinds.includes(artifact.kind as never));
+    const stepArtifacts = collapseSupersededDrafts(
+      artifacts.filter((artifact): artifact is ReviewArtifact => artifact !== null && step.kinds.includes(artifact.kind as never)),
+    );
+    const visibleArtifacts = step.node === workflow.progress.node && stepArtifacts.length === 0 && agentWork
+      ? [agentWork]
+      : stepArtifacts;
     return {
       node: step.node,
       label: step.label,
       state: workflow.progress.terminal || step.node < workflow.progress.node
         ? "complete"
         : step.node === workflow.progress.node ? "current" : "pending",
-      artifacts: stepArtifacts,
+      artifacts: visibleArtifacts,
     };
   });
   const control = artifacts.filter((artifact): artifact is ReviewArtifact => artifact !== null && !STEPS.some((step) => step.kinds.includes(artifact.kind as never)));
-  const record = asRecord(asRecord(await readJson(join(dataDirectory, "workflows.json")))?.workflows);
-  const workflowRecord = asRecord(record?.[workflowId]);
 
   return {
     workflow,
@@ -179,6 +185,43 @@ async function readWorkflowReview(dataDirectory: string, workflowId: string): Pr
     control,
     events: array(workflowRecord?.events) ?? [],
     reviewMode: workflow.state === "AWAITING_HUMAN_REVIEW",
+  };
+}
+
+function collapseSupersededDrafts(artifacts: readonly ReviewArtifact[]): ReviewArtifact[] {
+  const kinds = new Set(artifacts.map((artifact) => artifact.kind));
+  const superseded = new Map([
+    ["baseline_draft", "baseline"],
+    ["creative_outline_draft", "creative_outline"],
+    ["content_master_draft", "content_master"],
+    ["release_package_draft", "release_package"],
+  ]);
+  return artifacts.filter((artifact) => {
+    const lockedKind = superseded.get(artifact.kind);
+    return !lockedKind || !kinds.has(lockedKind);
+  });
+}
+
+function agentWorkBrief(workflowId: string, revision: number, work: JsonRecord | null): ReviewArtifact | null {
+  if (!work) return null;
+  const taskId = text(work.taskId);
+  const stage = text(work.stage);
+  const requestedOutput = asRecord(work.requestedOutput);
+  if (!taskId || !stage || !requestedOutput) return null;
+  return {
+    artifactId: `agent-work:${workflowId}:${revision}:${taskId}`,
+    kind: "agent_work_brief",
+    content: {
+      taskId,
+      stage,
+      deliverable: asRecord(work.deliverable),
+      requestedOutput,
+      constraints: array(work.constraints) ?? [],
+      validationRules: array(work.validationRules) ?? [],
+      nextCommitKind: text(work.nextCommitKind),
+      guidance: asRecord(work.guidance),
+      status: "等待 Agent 提交正式交付物；本简报不等于节点成果。",
+    },
   };
 }
 
@@ -322,7 +365,7 @@ const app = document.getElementById('app');
 const picker = document.getElementById('workflow-picker');
 const refresh = document.getElementById('refresh');
 const live = document.getElementById('live-indicator');
-const titles = { fetched_topic_cards:'来源材料', topic_match:'候选评估', selected_topic:'已选点子', baseline_draft:'核心诉求草案', baseline:'核心诉求', creative_routes:'创意路线', creative_route_selection:'已选路线', creative_outline_draft:'大纲草案', creative_outline:'锁定大纲', outline_script:'大纲脚本', content_master_draft:'主稿草案', master_review:'主稿审校', content_master:'锁定主稿', spoken_script:'口播稿', recording_execution:'录制执行', requirement_set:'素材需求', preproduction_material_plan:'前期素材计划', production_plan:'制作计划', production_checkpoint:'制作验收', production_handoff:'制作交接', production_locked:'制作结果', article_document:'文章文件', preview:'预览', asset_manifest:'素材清单', vectcut_draft:'可编辑草稿', release_package_draft:'发布草案', release_package:'发布包装', competition_report:'候选竞争', human_review_packet:'人工审核摘要', decision_ledger:'决策记录' };
+const titles = { agent_work_brief:'当前任务简报', fetched_topic_cards:'来源材料', topic_match:'候选评估', selected_topic:'已选点子', baseline_draft:'核心诉求草案', baseline:'核心诉求', creative_routes:'创意路线', creative_route_selection:'已选路线', creative_outline_draft:'大纲草案', creative_outline:'锁定大纲', outline_script:'大纲脚本', content_master_draft:'主稿草案', master_review:'主稿审校', content_master:'锁定主稿', spoken_script:'口播稿', recording_execution:'录制执行', requirement_set:'素材需求', preproduction_material_plan:'前期素材计划', production_plan:'制作计划', production_checkpoint:'制作验收', production_handoff:'制作交接', production_locked:'制作结果', article_document:'文章文件', preview:'预览', asset_manifest:'素材清单', vectcut_draft:'可编辑草稿', release_package_draft:'发布草案', release_package:'发布包装', competition_report:'候选竞争', human_review_packet:'人工审核摘要', decision_ledger:'决策记录' };
 const labels = { coreMessage:'这篇内容想让读者相信什么', guidanceIntent:'读者看完要完成什么动作', audienceMoment:'读者正在经历什么', immediateBenefit:'读者立刻得到什么', longTermBenefit:'长期会少掉什么麻烦', beliefToChange:'希望读者改掉的旧看法', proofToShow:'必须看见什么证明', evidenceBoundary:'哪些话不能说过头', primaryCallToAction:'最后希望读者做什么', readerDecision:'读者最后要做的判断', humanCenter:'这件事和谁的真实处境有关', authorStance:'我们以什么身份说这件事', warmThread:'贯穿全文的感受', emotionalArc:'读者的理解如何推进', rationale:'为什么选它', whyThisRoute:'为什么选这条路线', centralTension:'文章抓住的矛盾', openingScene:'从哪里开场', proofMethod:'如何证明', readerShift:'希望读者理解发生什么变化', openingDirection:'开篇怎么进入', content:'这一段要说什么', sceneOrAction:'让读者看到什么场景', sectionPurpose:'这一段承担什么作用', visualAsset:'需要什么画面', avoid:'这一段不能夸大的地方', findings:'审校观察', evidenceBlockers:'还缺什么证明', constraints:'素材使用限制', materialType:'需要准备什么素材', purpose:'这个素材证明什么', capabilityGaps:'制作前还缺什么能力', title:'标题', summary:'摘要' };
 let data = null;
 const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
@@ -336,7 +379,7 @@ function renderOutline(value) { const outline=value.outline||value; const sectio
 function renderMasterReview(value) { const review=value.review||{}; const groups=[['证据问题',review.evidenceBlockers],['文风与结构',review.writingStyle?.findings],['读者与证据链',review.articleEditorial?.findings],['素材可行性',review.assetEfficiencyFindings]]; return '<p class="lead">'+(review.passed?'审校通过：可以进入人工审核。':'审校发现仍会影响发布判断的问题。')+'</p>'+groups.filter(([,items])=>items?.length).map(([title,items])=>'<h4>'+title+'</h4>'+renderValue(items)).join(''); }
 function renderRequirements(value) { const requirements=value.requirements||[]; return '<p class="lead">需要补齐 '+requirements.length+' 组能够证明正文判断的素材。</p>'+requirements.map((item,index)=>'<div class="route"><strong>素材 '+(index+1)+'</strong>'+keyFields(item,['materialType','constraints'])+'<div class="field"><dt>这些画面要证明什么</dt><dd>'+renderValue((item.usages||[]).map(usage=>usage.purpose).filter(Boolean))+'</dd></div></div>').join(''); }
 function renderProduction(value) { const gaps=value.capabilityGaps||[]; const units=value.units||[]; return '<p class="lead">制作将按 '+units.length+' 个单元推进。</p>'+(gaps.length?'<h4>开工前要处理的缺口</h4>'+renderValue(gaps):'<p>当前没有记录额外制作能力缺口。</p>'); }
-function artifactBody(artifact) { const value = artifact.content; if (typeof value === 'string') return '<div class="markdown">'+esc(value.replace(/^# .*$/m,'').trim())+'</div>'; if (!isObj(value)) return '<p>'+renderValue(value)+'</p>'; if (artifact.kind === 'baseline' || artifact.kind === 'baseline_draft') { const campaign=value.campaignIntent||{}, editorial=value.articleEditorialIntent||{}; return '<p class="lead">'+esc(value.coreMessage||'')+'</p><h4>引导读者完成什么</h4>'+keyFields(value,['guidanceIntent'])+'<h4>传播判断</h4>'+keyFields(campaign,['audienceMoment','immediateBenefit','longTermBenefit','beliefToChange','proofToShow','evidenceBoundary','primaryCallToAction'])+'<h4>编辑基调</h4>'+keyFields(editorial,['readerDecision','humanCenter','authorStance','warmThread','emotionalArc']); }
+function artifactBody(artifact) { const value = artifact.content; if (typeof value === 'string') return '<div class="markdown">'+esc(value.replace(/^# .*$/m,'').trim())+'</div>'; if (!isObj(value)) return '<p>'+renderValue(value)+'</p>'; if (artifact.kind === 'agent_work_brief') return '<p class="lead">'+esc(value.status||'等待正式交付物。')+'</p>'+keyFields(value.requestedOutput||{},['description','fields'])+'<h4>执行边界</h4>'+keyFields(value,['constraints','validationRules','nextCommitKind']); if (artifact.kind === 'baseline' || artifact.kind === 'baseline_draft') { const campaign=value.campaignIntent||{}, editorial=value.articleEditorialIntent||{}; return '<p class="lead">'+esc(value.coreMessage||'')+'</p><h4>引导读者完成什么</h4>'+keyFields(value,['guidanceIntent'])+'<h4>传播判断</h4>'+keyFields(campaign,['audienceMoment','immediateBenefit','longTermBenefit','beliefToChange','proofToShow','evidenceBoundary','primaryCallToAction'])+'<h4>编辑基调</h4>'+keyFields(editorial,['readerDecision','humanCenter','authorStance','warmThread','emotionalArc']); }
  if (artifact.kind === 'creative_routes') return '<p class="lead">从候选中选出一条可证明、可推进的路线。</p>'+renderRoutes(value.routes||[]);
  if (artifact.kind === 'creative_route_selection') return '<p class="lead">'+esc(value.route?.name || '已锁定路线')+'</p>'+keyFields(value.route||value,['centralTension','openingScene','proofMethod','readerShift','whyThisRoute']);
  if (artifact.kind === 'selected_topic') return '<p class="lead">'+esc(value.topic?.title||'')+'</p>'+keyFields(value.topic||value,['source','excerpt','rationale'])+keyFields(value,['selectedMaterials']);

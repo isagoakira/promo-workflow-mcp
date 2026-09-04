@@ -27,6 +27,10 @@ Read `pendingAction`, `revision`, `agentWork`, and the referenced artifacts from
 | `human_review` | Open the review packet, present its decision, and wait for an explicit human `approve`, `revise`, or `reject` before `submit_human_review`. |
 | no action | Report the terminal result; do not reopen or mutate it. |
 
+An `agent_work` capsule is a task brief, not a node deliverable. After `promo_run` returns one, continue the same control loop: load its guidance, produce the requested output, validate it, and submit `agentWork.nextCommitKind` before ending the turn. Stop earlier only for a genuinely blocking user decision, missing evidence or authority, or an explicit tool failure. Never report a node as delivered merely because its task brief now appears in the workbench.
+
+The workbench may display that capsule as **当前任务简报** while the current node has no artifact yet. This prevents a blank review surface, but it does not satisfy the node. The formal deliverable remains the artifact created by the declared commit.
+
 After every `promo_run` or `promo_commit`, use the returned revision for the next call. Never advance because a later output “looks ready.”
 
 ## Show the active node

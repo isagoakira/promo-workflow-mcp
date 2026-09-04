@@ -92,3 +92,101 @@ test("review host exposes only one workflow's projected longitudinal artifacts",
     await new Promise((resolveClose, rejectClose) => server.close((error) => error ? rejectClose(error) : resolveClose()));
   }
 });
+
+test("review host exposes the current agent brief when a node has no draft artifact yet", async () => {
+  const cases = [
+    ["FETCHING", 1, "topic_fetch"],
+    ["ALIGNING_BASELINE", 2, "baseline_alignment"],
+    ["ALIGNING_OUTLINE", 3, "creative_outline"],
+    ["ALIGNING_MASTER", 4, "master_development"],
+    ["PRODUCING", 6, "production"],
+    ["PACKAGING", 7, "release_packaging"],
+  ];
+
+  for (const [state, node, stage] of cases) {
+    const dataDirectory = await mkdtemp(join(tmpdir(), "promo-review-brief-"));
+    const workflowId = `wf-${node}`;
+    const workspace = join(dataDirectory, "workspace", workflowId);
+    await mkdir(workspace, { recursive: true });
+    await writeFile(join(dataDirectory, "workflows.json"), JSON.stringify({
+      schemaVersion: 1,
+      workflows: {
+        [workflowId]: {
+          id: workflowId, carrier: "article", state, revision: node,
+          displayName: `Node ${node}`, rootDirectory: `/projects/node-${node}`,
+          summary: "Waiting for the agent deliverable.", updatedAt: "2026-09-05T00:00:00.000Z", events: [],
+          context: {
+            agentWork: {
+              taskId: `task-${node}`,
+              stage,
+              inputs: { lockedUpstream: `node-${node - 1}` },
+              constraints: ["Preserve the locked proposition."],
+              requestedOutput: { description: "Return the complete reviewable draft.", fields: ["draft", "review"] },
+              validationRules: ["Submit through the declared next commit."],
+              nextCommitKind: "submit_draft",
+            },
+          },
+        },
+      },
+    }));
+    await writeFile(join(workspace, "manifest.json"), JSON.stringify({
+      workflowId, carrier: "article", state, revision: node,
+      summary: "Waiting for the agent deliverable.", deliverables: [],
+    }));
+
+    const server = createReviewHost({ dataDirectory });
+    await new Promise((resolveListening) => server.listen(0, "127.0.0.1", resolveListening));
+    try {
+      const address = server.address();
+      assert.ok(address && typeof address !== "string");
+      const review = await (await fetch(`http://127.0.0.1:${address.port}/api/workflows/${workflowId}`)).json();
+      assert.equal(review.steps[node - 1].artifacts.length, 1, `${state} should not render an empty current node`);
+      assert.equal(review.steps[node - 1].artifacts[0].kind, "agent_work_brief");
+      assert.equal(review.steps[node - 1].artifacts[0].content.stage, stage);
+      assert.equal(review.steps[node - 1].artifacts[0].content.inputs, undefined, "brief must not duplicate large upstream inputs");
+    } finally {
+      await new Promise((resolveClose, rejectClose) => server.close((error) => error ? rejectClose(error) : resolveClose()));
+    }
+  }
+});
+
+test("review host hides superseded drafts when the locked deliverable is available", async () => {
+  const dataDirectory = await mkdtemp(join(tmpdir(), "promo-review-dedupe-"));
+  const workflowId = "wf-dedupe";
+  const workspace = join(dataDirectory, "workspace", workflowId);
+  const campaignIntentDirectory = join(workspace, "02-campaign-intent");
+  await mkdir(campaignIntentDirectory, { recursive: true });
+  const draftPath = join(campaignIntentDirectory, "campaign-intent-draft.json");
+  const lockedPath = join(campaignIntentDirectory, "campaign-intent.json");
+  const sharedContent = { coreMessage: "Keep one visible version after lock.", guidanceIntent: "Review the locked intent." };
+  await writeFile(draftPath, JSON.stringify({ content: sharedContent }));
+  await writeFile(lockedPath, JSON.stringify({ content: sharedContent }));
+  await writeFile(join(dataDirectory, "workflows.json"), JSON.stringify({
+    schemaVersion: 1,
+    workflows: {
+      [workflowId]: {
+        id: workflowId, carrier: "article", state: "BASELINE_LOCKED", revision: 4,
+        displayName: "Deduplicated workflow", rootDirectory: "/projects/dedupe",
+        summary: "Baseline locked.", updatedAt: "2026-09-05T00:00:00.000Z", events: [], context: {},
+      },
+    },
+  }));
+  await writeFile(join(workspace, "manifest.json"), JSON.stringify({
+    workflowId, carrier: "article", state: "BASELINE_LOCKED", revision: 4, summary: "Baseline locked.",
+    deliverables: [
+      { artifactId: "artifact-draft", kind: "baseline_draft", path: draftPath },
+      { artifactId: "artifact-locked", kind: "baseline", path: lockedPath },
+    ],
+  }));
+
+  const server = createReviewHost({ dataDirectory });
+  await new Promise((resolveListening) => server.listen(0, "127.0.0.1", resolveListening));
+  try {
+    const address = server.address();
+    assert.ok(address && typeof address !== "string");
+    const review = await (await fetch(`http://127.0.0.1:${address.port}/api/workflows/${workflowId}`)).json();
+    assert.deepEqual(review.steps[1].artifacts.map((artifact) => artifact.kind), ["baseline"]);
+  } finally {
+    await new Promise((resolveClose, rejectClose) => server.close((error) => error ? rejectClose(error) : resolveClose()));
+  }
+});
