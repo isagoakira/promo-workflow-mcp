@@ -25,8 +25,9 @@ promo-video-article-workflow (required)
   -> promo_workflow MCP + workflow driver Skill
 
 optional task packs
+  -> promo-human-language-writing (high-priority writing gate)
   -> promo-product-writing
-  -> promo-article-appso
+  -> promo-product-tweet-editor (APPSO 指定风格按文章节点拆分)
   -> promo-video-preproduction
 
 optional production adapters
@@ -34,7 +35,7 @@ optional production adapters
   -> promo-vectcut-adapter
 ```
 
-The core state machine never depends on an optional package. An Agent-work capsule names the focused host package for each guidance policy, while `promo_guidance` remains the canonical MCP-owned text. At production, `promo_get` adds `adapterStatus` with each adapter's installation, configuration, availability, and remediation. A missing adapter is a capability gap rather than an implicit fallback.
+The core state machine never depends on an optional package. An Agent-work capsule names the focused host package for each guidance policy, while `promo_guidance` remains the canonical MCP-owned text. Human-language guidance is marked high priority and is loaded before normal-priority writing guidance whenever the current node allows it. At production, `promo_get` adds `adapterStatus` with each adapter's installation, configuration, availability, and remediation. A missing adapter is a capability gap rather than an implicit fallback.
 
 ## MCP interface
 

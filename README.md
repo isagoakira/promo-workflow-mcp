@@ -61,6 +61,8 @@ npm run setup
 
 ### 2. Codex 用户：安装基础包
 
+在仓库根目录执行：
+
 ```bash
 codex plugin marketplace add "$(pwd)"
 codex plugin add promo-video-article-workflow@promo-workflow
@@ -69,6 +71,20 @@ codex plugin add promo-video-article-workflow@promo-workflow
 基础包会同时安装 `promo_workflow` MCP 和 `$promo-video-article-workflow` 入口 Skill。安装完成后新开一个 Codex 任务，使新的 MCP 与 Skill 被加载。
 
 需要文章方法、视频前期或制作后端时，再从同一 marketplace 安装对应的可选包；不装它们不影响选题、写作和审核流程。
+
+`promo-human-language-writing` 是所有中文宣发写作的高优先级人话门禁，已标记为 marketplace 默认安装：它会在普通文风与平台适配之前检查具体的人、处境、细节、判断和证据边界。
+
+当前可从这个本地 marketplace 安装的包是：
+
+```text
+promo-video-article-workflow    基础 MCP 与流程入口
+promo-human-language-writing    高优先级人话写作门禁
+promo-product-writing           科技产品表达监督
+promo-product-tweet-editor      科技产品推文编辑
+promo-video-preproduction       视频前期交付约束
+promo-cut-workbench-adapter     完整视频制作适配
+promo-vectcut-adapter           轻量可编辑草稿适配
+```
 
 根目录的 [`.mcp.json`](.mcp.json) 已包含 `promo_workflow`。任何支持 stdio MCP 的客户端都可以指向它：
 
@@ -207,7 +223,11 @@ npm run build
 npm run review
 ```
 
-默认打开 `http://127.0.0.1:4173`。它只读取当前 `PROMO_WORKFLOW_DATA_DIR`（默认 `data/`）中已冻结的工作流制品，把选题与证据、宣传意图、创意与大纲、主稿、素材需求、制作、发布包装排成可展开的纵向链路。它会订阅本地流程状态和制品变化，按状态机自动标出当前节点并刷新内容；启动 MCP 时也会默认启动这一审核台，Agent 可通过 `promo_review` 取得直达地址。审核台不会直接改状态或代替人工决定，批准、退回、拒绝仍须经 `promo_commit` 绑定当前 revision。
+默认打开 `http://127.0.0.1:4173`。它只读取当前 `PROMO_WORKFLOW_DATA_DIR`（默认 `data/`）中已冻结的工作流制品，把选题与证据、宣传意图、创意与大纲、主稿、素材需求、制作、发布包装排成可展开的纵向链路。它会订阅本地流程状态和制品变化，按状态机自动标出当前节点并刷新内容。
+
+启动 MCP 时，工作台会默认随之启动。每次 `promo_get`、`promo_run` 或 `promo_commit` 都返回 `workbench`：其中包含当前工作流直达链接、它负责监控的内容，以及 Agent 必须主动展示/打开链接的说明。工作台只负责让用户看见进度、证据、版本、待办和人工审核点；它不会直接改状态，也不会代替人工决定。批准、退回、拒绝仍须经 `promo_commit` 绑定当前 revision。
+
+工作台首页按“视频 / 推文”分成两个选项卡；每个选项卡再按项目根目录归组并列出可选择的具体工作流。列表展示的是 Agent 在创建时写入的稳定名称，而不是内部工作流 ID。根目录与载体共同构成复用键：同一根目录最多保留一条视频流程和一条推文流程；再次创建同一组合时 MCP 返回已有流程并标记 `reused: true`，不会生成平行副本。创建时应传入 `rootDirectory` 与简洁的 `displayName`。
 
 可用 `PROMO_REVIEW_PORT` 改端口、`PROMO_REVIEW_HOST` 改监听地址；默认只监听本机回环地址。
 
@@ -232,8 +252,8 @@ Agent 此时应生成 2–5 条真正不同的策略路径，先淘汰不满足�
 
 | 工具 | 用途 |
 | --- | --- |
-| `promo_get` | 查看全部流程或单条流程、工作区边界、当前 revision、下一步动作、制品引用与审核台地址 |
-| `promo_review` | 获取当前工作流的本地实时审核台地址 |
+| `promo_get` | 查看全部流程或单条流程、工作区边界、当前 revision、下一步动作、制品引用与 `workbench` 监控链接 |
+| `promo_review` | 获取当前工作流的本地实时工作台链接与启动状态 |
 | `promo_guidance` | 按当前节点读取完整流程、文风、文章或分镜指导 |
 | `promo_run` | 执行该节点无需人工决定的自动步骤 |
 | `promo_commit` | 创建流程，或提交工作区确认、进度审计、接续 Grill、选材、基线、大纲、母版、审核、制作与发布决定 |
@@ -320,8 +340,9 @@ adapterStatus.cut_workbench.configurationSource = "local_config"
 
 | 插件包 | 适用任务 | 对流程的影响 |
 | --- | --- | --- |
+| `promo-human-language-writing` | 所有中文宣发的宣传意图、创意、大纲、口播/推文主稿、标题简介与修订 | 以高优先级门禁识别并修复四类 AI 八股；不突破证据边界 |
 | `promo-product-writing` | 视频或推文的创意、大纲、母稿、标题与简介 | 增加证据与文风监督 |
-| `promo-article-appso` | 公众号文章的编辑契约、结构、主稿、视觉证明与预览 | 增加文章编辑方法 |
+| `promo-product-tweet-editor` | 科技产品推文的编辑契约、结构、主稿、视觉证明、预览与发布包装 | 按节点迁移并审查 APPSO 整体编辑风格；不复制原句或刊物身份 |
 | `promo-video-preproduction` | 视频大纲、口播、分镜、前期素材执行包 | 增加视频前期交付约束 |
 | `promo-cut-workbench-adapter` | 接入本机 Cut Workbench 制作 | 读取 `npm run setup:cut-workbench` 生成的用户级配置 |
 | `promo-vectcut-adapter` | 生成 VectCut 可编辑草稿 | 提供 VectCut HTTP 制作桥接配置 |
