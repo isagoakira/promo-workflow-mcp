@@ -1,0 +1,21 @@
+{
+  "name": "promo-tim-cinematic-storycraft",
+  "version": "0.1.0",
+  "description": "Evidence-led cinematic technology-story planning for Promo Workflow video nodes.",
+  "author": {
+    "name": "Promo Workflow"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "技术影像策划",
+    "shortDescription": "把真实技术问题变成可拍、可证的影像叙事。",
+    "longDescription": "为 Promo Workflow 视频 N2/N3/N4 提供意图、叙事架构与证据分镜计划；只迁移可观察的创作方法，不模仿创作者身份或固定表达。",
+    "developerName": "Promo Workflow",
+    "category": "Productivity",
+    "capabilities": ["Guidance", "Video planning"],
+    "defaultPrompt": [
+      "为当前 Promo Workflow 视频加载技术影像策划指导。",
+      "用真实问题、视觉承诺和证据链检查视频前期方案。"
+    ]
+  }
+}

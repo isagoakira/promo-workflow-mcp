@@ -1,5 +1,10 @@
 import type { GuidanceId } from "./agent-work.js";
 import { PROMO_GUIDANCE_DOCUMENTS } from "./guidance-content.js";
+import {
+  TIM_CINEMATIC_VIDEO_ARCHITECTURE_GUIDANCE,
+  TIM_CINEMATIC_VIDEO_INTENT_GUIDANCE,
+  TIM_CINEMATIC_VIDEO_PROOF_PLAN_GUIDANCE,
+} from "./tim-cinematic-guidance.js";
 
 export interface GuidanceResource {
   id: string;
@@ -64,6 +69,24 @@ const CATALOG: Record<GuidanceId, GuidanceGuide> = {
       { id: "spoken-lines", title: "口播台词稿样本", content: PROMO_GUIDANCE_DOCUMENTS.exemplarSpokenLines },
       { id: "preproduction-material-plan", title: "前期素材执行包样本", content: PROMO_GUIDANCE_DOCUMENTS.exemplarPreproductionMaterialPlan },
     ],
+  },
+  "tim-cinematic-video-intent": {
+    id: "tim-cinematic-video-intent",
+    title: "技术影像：视频意图",
+    content: TIM_CINEMATIC_VIDEO_INTENT_GUIDANCE.content,
+    resources: TIM_CINEMATIC_VIDEO_INTENT_GUIDANCE.resources,
+  },
+  "tim-cinematic-video-architecture": {
+    id: "tim-cinematic-video-architecture",
+    title: "技术影像：叙事架构",
+    content: TIM_CINEMATIC_VIDEO_ARCHITECTURE_GUIDANCE.content,
+    resources: TIM_CINEMATIC_VIDEO_ARCHITECTURE_GUIDANCE.resources,
+  },
+  "tim-cinematic-video-proof-plan": {
+    id: "tim-cinematic-video-proof-plan",
+    title: "技术影像：证据与前期计划",
+    content: TIM_CINEMATIC_VIDEO_PROOF_PLAN_GUIDANCE.content,
+    resources: TIM_CINEMATIC_VIDEO_PROOF_PLAN_GUIDANCE.resources,
   },
 };
 

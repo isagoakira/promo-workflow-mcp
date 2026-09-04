@@ -29,13 +29,14 @@ optional task packs
   -> promo-product-writing
   -> promo-product-tweet-editor (APPSO 指定风格按文章节点拆分)
   -> promo-video-preproduction
+  -> promo-tim-cinematic-storycraft (视频 N2/N3/N4 技术影像策划)
 
 optional production adapters
   -> promo-cut-workbench-adapter
   -> promo-vectcut-adapter
 ```
 
-The core state machine never depends on an optional package. An Agent-work capsule names the focused host package for each guidance policy, while `promo_guidance` remains the canonical MCP-owned text. Human-language guidance is marked high priority and is loaded before normal-priority writing guidance whenever the current node allows it. At production, `promo_get` adds `adapterStatus` with each adapter's installation, configuration, availability, and remediation. A missing adapter is a capability gap rather than an implicit fallback.
+The core state machine never depends on an optional package. An Agent-work capsule names the focused host package for each guidance policy, while `promo_guidance` remains the canonical MCP-owned text. `promo-tim-cinematic-storycraft` is injected only for video planning: N2 establishes the filmable question and factual boundary, N3 selects a story engine and beat architecture, and N4 maps claims to tests, shots, results, and limits. It never drives the editor; the locked pre-production artifacts continue downstream to the Cut Workbench adapter. Human-language guidance is marked high priority and is loaded before normal-priority writing guidance whenever the current node allows it. At production, `promo_get` adds `adapterStatus` with each adapter's installation, configuration, availability, and remediation. A missing adapter is a capability gap rather than an implicit fallback.
 
 ## MCP interface
 

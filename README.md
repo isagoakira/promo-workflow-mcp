@@ -82,6 +82,7 @@ promo-human-language-writing    高优先级人话写作门禁
 promo-product-writing           科技产品表达监督
 promo-product-tweet-editor      科技产品推文编辑
 promo-video-preproduction       视频前期交付约束
+promo-tim-cinematic-storycraft  技术影像策划（视频 N2/N3/N4）
 promo-cut-workbench-adapter     完整视频制作适配
 promo-vectcut-adapter           轻量可编辑草稿适配
 ```
@@ -344,6 +345,7 @@ adapterStatus.cut_workbench.configurationSource = "local_config"
 | `promo-product-writing` | 视频或推文的创意、大纲、母稿、标题与简介 | 增加证据与文风监督 |
 | `promo-product-tweet-editor` | 科技产品推文的编辑契约、结构、主稿、视觉证明、预览与发布包装 | 按节点迁移并审查 APPSO 整体编辑风格；不复制原句或刊物身份 |
 | `promo-video-preproduction` | 视频大纲、口播、分镜、前期素材执行包 | 增加视频前期交付约束 |
+| `promo-tim-cinematic-storycraft` | 视频 N2 宣传意图、N3 创意路线、N4 分镜主稿与素材计划 | 将真实技术问题拆成视觉承诺、叙事节拍和可追溯证据链；主稿锁定后再由 CutWorkbench 承接制作，不模仿创作者身份或固定表达 |
 | `promo-cut-workbench-adapter` | 接入本机 Cut Workbench 制作 | 读取 `npm run setup:cut-workbench` 生成的用户级配置 |
 | `promo-vectcut-adapter` | 生成 VectCut 可编辑草稿 | 提供 VectCut HTTP 制作桥接配置 |
 

@@ -49,7 +49,7 @@ export function createBaselineBrief(input: CreateBaselineBriefInput): AgentWorkC
     nextCommitKind: "propose_baseline",
     guidance: createGuidanceRequest(input.carrier === "article"
       ? ["human-language-writing", "promo-writing-supervision", "product-tweet-article-contract"]
-      : ["human-language-writing", "promo-writing-supervision"]),
+      : ["human-language-writing", "promo-writing-supervision", "tim-cinematic-video-intent"]),
     decisionCard: {
       node: 2,
       label: "宣传核心与用户引导",

@@ -72,3 +72,27 @@ test("exemplar guidance keeps project facts out while exposing stable deliverabl
   assert.match(guide.resources[2].content, /叙事任务 -> 镜头 -> 画面证据/);
   assert.match(guide.resources[5].content, /母素材 -> 可拆片段 -> 多个使用位/);
 });
+
+test("cinematic technology-story guidance is split across the three video planning nodes", () => {
+  const request = createGuidanceRequest([
+    "tim-cinematic-video-intent",
+    "tim-cinematic-video-architecture",
+    "tim-cinematic-video-proof-plan",
+  ]);
+  assert.deepEqual(request.policies.map((policy) => policy.id), [
+    "tim-cinematic-video-intent",
+    "tim-cinematic-video-architecture",
+    "tim-cinematic-video-proof-plan",
+  ]);
+  assert.equal(request.policies.every((policy) => policy.plugin === "promo-tim-cinematic-storycraft"), true);
+  assert.equal(request.policies.every((policy) => policy.priority === "normal"), true);
+
+  const [intent, architecture, proofPlan] = loadGuidance(request.policies.map((policy) => policy.id));
+  assert.match(intent.content, /可拍、可验证的问题/);
+  assert.deepEqual(intent.resources.map((resource) => resource.id), ["source-basis", "intent-card"]);
+  assert.match(architecture.content, /主故事引擎/);
+  assert.deepEqual(architecture.resources.map((resource) => resource.id), ["source-basis", "story-engines", "beat-to-proof"]);
+  assert.match(proofPlan.content, /主张 → 条件\/测试 → 镜头或屏幕行为/);
+  assert.deepEqual(proofPlan.resources.map((resource) => resource.id), ["source-basis", "visual-production-grammar", "truth-and-similarity-gate"]);
+  assert.match(proofPlan.content, /不进入剪辑、导出或状态迁移/);
+});

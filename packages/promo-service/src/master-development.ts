@@ -69,7 +69,7 @@ export function createMasterDevelopmentBrief(input: CreateMasterDevelopmentBrief
     ],
     nextCommitKind: "submit_master_draft",
     guidance: createGuidanceRequest(carrier === "video"
-      ? ["human-language-writing", "promo-writing-supervision", "promo-storyboard-supervision", "product-voiceover-campaign", "promo-deliverable-exemplars"]
+      ? ["human-language-writing", "promo-writing-supervision", "promo-storyboard-supervision", "product-voiceover-campaign", "promo-deliverable-exemplars", "tim-cinematic-video-proof-plan"]
       : ["human-language-writing", "promo-writing-supervision", "product-tweet-manuscript-proof", "product-tweet-visual-proof"]),
   });
 }

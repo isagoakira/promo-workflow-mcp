@@ -1094,7 +1094,7 @@ export class WorkflowService {
         purpose: "用户已比较过的创意方向及其选择依据。",
       },
       guidance: createGuidanceRequest(record.carrier === "video"
-        ? ["human-language-writing", "promo-writing-supervision", "product-voiceover-campaign", "promo-deliverable-exemplars"]
+        ? ["human-language-writing", "promo-writing-supervision", "product-voiceover-campaign", "promo-deliverable-exemplars", "tim-cinematic-video-architecture"]
         : ["human-language-writing", "promo-writing-supervision", "product-tweet-human-center-outline"]),
     });
   }
@@ -2572,7 +2572,7 @@ function createMasterRevisionBrief(
     nextCommitKind: "submit_master_draft",
     guidance: createGuidanceRequest(creativeOutline.outline.carrier === "article"
       ? ["human-language-writing", "promo-writing-supervision", "product-tweet-manuscript-proof", "product-tweet-visual-proof"]
-      : ["human-language-writing", "promo-writing-supervision", "promo-storyboard-supervision", "product-voiceover-campaign", "promo-deliverable-exemplars"]),
+      : ["human-language-writing", "promo-writing-supervision", "promo-storyboard-supervision", "product-voiceover-campaign", "promo-deliverable-exemplars", "tim-cinematic-video-proof-plan"]),
     decisionCard: {
       node: 4, label: "主稿修订", known: ["一个阻塞性场景选择已确认。"],
       recommendation: "让选择影响正文/分镜的段落推进与证据，而不是局部补丁。", userDecision: null,

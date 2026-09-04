@@ -54,6 +54,9 @@ export const GUIDANCE_IDS = [
   "promo-storyboard-supervision",
   "product-voiceover-campaign",
   "promo-deliverable-exemplars",
+  "tim-cinematic-video-intent",
+  "tim-cinematic-video-architecture",
+  "tim-cinematic-video-proof-plan",
 ] as const;
 
 export type GuidanceId = (typeof GUIDANCE_IDS)[number];
@@ -63,7 +66,8 @@ export type GuidancePluginId =
   | "promo-human-language-writing"
   | "promo-product-writing"
   | "promo-product-tweet-editor"
-  | "promo-video-preproduction";
+  | "promo-video-preproduction"
+  | "promo-tim-cinematic-storycraft";
 
 export type GuidancePriority = "high" | "normal";
 
@@ -153,5 +157,11 @@ function toPolicy(id: GuidanceId): GuidancePolicy {
       return { id, plugin: "promo-video-preproduction", priority: "normal", overview: "将产品能力转化为可证明、可拍摄的实测故事，并明确口播与画面证据如何协作。", loadWhen: "视频创意、口播主稿、截图证据链与素材缺口规划。" };
     case "promo-deliverable-exemplars":
       return { id, plugin: "promo-video-preproduction", priority: "normal", overview: "读取完整视频前期交付模板契约及其结构卡；固定制品章节、字段粒度、追踪关系和验收，不泛化具体案例事实。", loadWhen: "视频创意路线、分镜主稿与前期素材执行包；先读完整模板，再处理单项结构卡。" };
+    case "tim-cinematic-video-intent":
+      return { id, plugin: "promo-tim-cinematic-storycraft", priority: "normal", overview: "把宣传主题压成可拍的技术问题、视觉承诺和可核验的事实权限。", loadWhen: "仅视频 N2：宣传核心与用户引导。" };
+    case "tim-cinematic-video-architecture":
+      return { id, plugin: "promo-tim-cinematic-storycraft", priority: "normal", overview: "用一个主故事引擎安排问题、行动、证据、转折与人的收束。", loadWhen: "仅视频 N3：创意路线与视频大纲。" };
+    case "tim-cinematic-video-proof-plan":
+      return { id, plugin: "promo-tim-cinematic-storycraft", priority: "normal", overview: "将锁定大纲转成音画、证据、覆盖和可交给 CutWorkbench 的前期计划。", loadWhen: "仅视频 N4：分镜主稿、口播与素材计划。" };
   }
 }

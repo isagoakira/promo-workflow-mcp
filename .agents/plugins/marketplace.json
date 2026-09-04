@@ -87,6 +87,18 @@
         "authentication": "ON_INSTALL"
       },
       "category": "Productivity"
+    },
+    {
+      "name": "promo-tim-cinematic-storycraft",
+      "source": {
+        "source": "local",
+        "path": "./plugins/promo-tim-cinematic-storycraft"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
     }
   ]
 }

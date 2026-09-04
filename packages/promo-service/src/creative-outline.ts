@@ -113,7 +113,7 @@ export function createCreativeOutlineBrief(input: CreateCreativeOutlineBriefInpu
       purpose: "后续扩写、分镜和跨载体改编的结构母版。",
     },
     guidance: createGuidanceRequest(input.budget.carrier === "video"
-      ? ["human-language-writing", "promo-writing-supervision", "product-voiceover-campaign", "promo-deliverable-exemplars"]
+      ? ["human-language-writing", "promo-writing-supervision", "product-voiceover-campaign", "promo-deliverable-exemplars", "tim-cinematic-video-architecture"]
       : ["human-language-writing", "promo-writing-supervision", "product-tweet-human-center-outline"]),
   });
 }
