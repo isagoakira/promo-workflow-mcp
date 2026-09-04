@@ -220,6 +220,7 @@ function placementFor(kind: ArtifactKind): { node: string; name: string } | null
     case "fetched_topic_cards": return { node: "01-selection", name: "fetched-topic-cards" };
     case "topic_match": return { node: "01-selection", name: "topic-matching" };
     case "selected_topic": return { node: "01-selection", name: "selected-topic" };
+    case "baseline_draft": return { node: "02-campaign-intent", name: "campaign-intent-draft" };
     case "baseline": return { node: "02-campaign-intent", name: "campaign-intent" };
     case "decision_ledger": return { node: "00-control", name: "decision-ledger" };
     case "human_review_packet": return { node: "00-control", name: "current-review" };

@@ -173,6 +173,10 @@ test("workflow advances with optimistic revisions and idempotency", async () => 
     idempotencyKey: "baseline-proposal-1",
   });
   assert.equal(proposed.state, "ALIGNING_BASELINE");
+  assert.equal(proposed.artifactRefs.some((artifact) => artifact.kind === "baseline_draft"), true);
+  const campaignIntentDraft = proposed.deliverables.find((deliverable) => deliverable.kind === "baseline_draft");
+  assert.ok(campaignIntentDraft);
+  assert.match(await readFile(campaignIntentDraft.path, "utf8"), /campaignIntent/);
 
   const answered = await service.commit({
     workflowId: created.workflowId,

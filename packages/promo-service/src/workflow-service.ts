@@ -724,12 +724,18 @@ export class WorkflowService {
         const proposal = readBaselineProposal(input.context.baselineProposal);
         assertArticleEditorialIntent(record.carrier, proposal);
         assertDecisionsIncorporated(proposal.incorporatesDecisionIds, unresolvedDecisionIds(record.context));
-        record.context = {
-          ...record.context,
+        const artifact = await this.artifacts.write({
+          kind: "baseline_draft",
+          content: proposal,
+          parentArtifactIds: artifactIdsFor(record.context),
+          revision: record.revision + 1,
+        });
+        record.context = withArtifact(record.context, artifact, {
           ...without(input.context, ["baselineProposal"]),
           baselineProposal: proposal,
+          baselineDraftArtifactId: artifact.artifactId,
           unresolvedDecisionIds: [],
-        };
+        });
       } else if (input.kind === "answer_baseline_grill") {
         const proposal = baselineProposalFor(record.context);
         if (!proposal?.pendingQuestion) throw new Error("No baseline scenario Grill question is pending.");
@@ -1522,6 +1528,7 @@ const IMPORTABLE_PROGRESS_ARTIFACT_KINDS: readonly ArtifactKind[] = [
   "fetched_topic_cards",
   "topic_match",
   "selected_topic",
+  "baseline_draft",
   "baseline",
   "creative_routes",
   "creative_route_selection",
@@ -1773,6 +1780,7 @@ function contextAdditionsForImportedArtifacts(
     fetched_topic_cards: "fetchedTopicsArtifactId",
     topic_match: "topicMatchArtifactId",
     selected_topic: "selectedTopicArtifactId",
+    baseline_draft: "baselineDraftArtifactId",
     baseline: "baselineArtifactId",
     creative_routes: "creativeRoutesArtifactId",
     creative_route_selection: "selectedCreativeRouteArtifactId",

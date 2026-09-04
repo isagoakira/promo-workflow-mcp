@@ -2,6 +2,7 @@ export type ArtifactKind =
   | "fetched_topic_cards"
   | "topic_match"
   | "selected_topic"
+  | "baseline_draft"
   | "baseline"
   | "decision_ledger"
   | "creative_routes"

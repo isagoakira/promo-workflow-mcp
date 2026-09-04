@@ -21,7 +21,7 @@ export interface HumanReviewPacket {
 
 const SECTIONS: Array<{ node: number | "control"; title: string; kinds: readonly ArtifactKind[] }> = [
   { node: 1, title: "节点一：选材与证据", kinds: ["fetched_topic_cards", "topic_match", "selected_topic"] },
-  { node: 2, title: "节点二：宣传意图", kinds: ["baseline"] },
+  { node: 2, title: "节点二：宣传意图", kinds: ["baseline_draft", "baseline"] },
   { node: 3, title: "节点三：创意路线与大纲", kinds: ["creative_routes", "creative_route_selection", "creative_outline_draft", "creative_outline", "outline_script"] },
   { node: 4, title: "节点四：主稿与审校", kinds: ["content_master_draft", "master_review", "content_master", "spoken_script", "recording_execution"] },
   { node: 5, title: "节点五：素材需求与前期执行", kinds: ["requirement_set", "preproduction_material_plan", "production_plan", "asset_plan", "subtitle"] },
@@ -32,6 +32,7 @@ const KIND_TITLES: Partial<Record<ArtifactKind, string>> = {
   fetched_topic_cards: "来源材料卡",
   topic_match: "选题匹配结果",
   selected_topic: "已选题目",
+  baseline_draft: "宣传意图草案",
   baseline: "已锁定宣传意图",
   decision_ledger: "决策记录",
   competition_report: "候选竞争报告",
@@ -259,6 +260,7 @@ function renderArtifact(ref: ArtifactRef, record: ArtifactRecord): string[] {
       return lines.concat(renderTopicMatch(record.content));
     case "selected_topic":
       return lines.concat(renderSelectedTopic(record.content));
+    case "baseline_draft":
     case "baseline":
       return lines.concat(renderBaseline(record.content));
     case "creative_routes":

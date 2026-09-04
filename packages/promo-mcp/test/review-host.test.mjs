@@ -11,10 +11,20 @@ test("review host exposes only one workflow's projected longitudinal artifacts",
   const workflowId = "wf-review";
   const workspace = join(dataDirectory, "workspace", workflowId);
   const selectionDirectory = join(workspace, "01-selection");
+  const campaignIntentDirectory = join(workspace, "02-campaign-intent");
   await mkdir(selectionDirectory, { recursive: true });
+  await mkdir(campaignIntentDirectory, { recursive: true });
   const selectedTopicPath = join(selectionDirectory, "selected-topic.json");
+  const baselineDraftPath = join(campaignIntentDirectory, "campaign-intent-draft.json");
   await writeFile(selectedTopicPath, JSON.stringify({
     content: { topic: { title: "A local-first agent workflow", source: "official source" } },
+  }));
+  await writeFile(baselineDraftPath, JSON.stringify({
+    content: {
+      coreMessage: "A visible draft can be reviewed before it is locked.",
+      guidanceIntent: "Choose the reader scene before locking the intent.",
+      campaignIntent: { audienceMoment: "A builder opens a fresh session." },
+    },
   }));
   await writeFile(join(dataDirectory, "workflows.json"), JSON.stringify({
     schemaVersion: 1,
@@ -30,6 +40,7 @@ test("review host exposes only one workflow's projected longitudinal artifacts",
     workflowId, carrier: "article", state: "AWAITING_HUMAN_REVIEW", revision: 9, summary: "Ready for review.",
     deliverables: [
       { artifactId: "artifact-selected", kind: "selected_topic", path: selectedTopicPath },
+      { artifactId: "artifact-baseline-draft", kind: "baseline_draft", path: baselineDraftPath },
       { artifactId: "artifact-foreign", kind: "baseline", path: join(dataDirectory, "outside.json") },
     ],
   }));
@@ -49,7 +60,9 @@ test("review host exposes only one workflow's projected longitudinal artifacts",
     const review = await (await fetch(`${origin}/api/workflows/${workflowId}`)).json();
     assert.equal(review.steps[0].artifacts[0].kind, "selected_topic");
     assert.equal(review.steps[0].artifacts[0].content.topic.title, "A local-first agent workflow");
-    assert.equal(review.steps[1].artifacts.length, 0);
+    assert.equal(review.steps[1].artifacts.length, 1);
+    assert.equal(review.steps[1].artifacts[0].kind, "baseline_draft");
+    assert.equal(review.steps[1].artifacts[0].content.coreMessage, "A visible draft can be reviewed before it is locked.");
     assert.equal(review.workflow.progress.node, 5);
     assert.equal(review.workflow.displayName, "本地 Agent 工作流推文");
     assert.equal(review.steps[4].state, "current");
