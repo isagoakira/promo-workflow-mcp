@@ -1,0 +1,22 @@
+{
+  "name": "promo-human-language-writing",
+  "version": "0.1.0",
+  "description": "High-priority human-language guidance for Chinese product-promotion writing in Promo Workflow.",
+  "author": {
+    "name": "Local developer"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "人话写作监督",
+    "shortDescription": "先找回具体的人、事、细节和判断，再写宣发文案。",
+    "longDescription": "在 Promo Workflow 的宣传意图、创意大纲、推文或口播主稿、标题简介与修订节点优先介入。识别并修复强行对比、悬空比喻、重复夸张和脱离中文语感的 AI 八股；保留证据边界，不虚构经历、数据或产品结果。",
+    "developerName": "Local developer",
+    "category": "Productivity",
+    "capabilities": [
+      "Chinese human-language writing gate",
+      "AI-cliche diagnosis and repair",
+      "Evidence-bounded promotional copy"
+    ],
+    "defaultPrompt": "先做一轮人话审查：找出具体的人、处境、细节和判断，再修复 AI 八股，不凭空增加事实。"
+  }
+}

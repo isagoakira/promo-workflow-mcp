@@ -1,5 +1,6 @@
 import { brotliDecompressSync } from "node:zlib";
-import { APPSO_PRODUCT_EDITOR_GUIDANCE, APPSO_PRODUCT_EDITOR_RESOURCES } from "./appso-editor-guidance.js";
+import { HUMAN_LANGUAGE_WRITING_GUIDANCE, HUMAN_LANGUAGE_WRITING_RESOURCES } from "./human-language-guidance.js";
+import { PRODUCT_TWEET_EDITOR_GUIDANCE, PRODUCT_TWEET_EDITOR_RESOURCES } from "./product-tweet-editor-guidance.js";
 import { VIDEO_DELIVERY_CONTRACT } from "./video-delivery-contract.js";
 
 const COMPRESSED_DOCUMENTS = {
@@ -83,8 +84,10 @@ const EXEMPLAR_PREPRODUCTION_MATERIAL_PLAN = `# 前期素材执行包结构卡
  * always receive the original Markdown text.
  */
 export const PROMO_GUIDANCE_DOCUMENTS = {
-  appsoProductEditor: APPSO_PRODUCT_EDITOR_GUIDANCE,
-  appsoProductEditorResources: APPSO_PRODUCT_EDITOR_RESOURCES,
+  humanLanguageWriting: HUMAN_LANGUAGE_WRITING_GUIDANCE,
+  humanLanguageWritingResources: HUMAN_LANGUAGE_WRITING_RESOURCES,
+  productTweetEditor: PRODUCT_TWEET_EDITOR_GUIDANCE,
+  productTweetEditorResources: PRODUCT_TWEET_EDITOR_RESOURCES,
   deliverableExemplarsGuide: DELIVERABLE_EXEMPLARS_GUIDE,
   videoDeliveryContract: VIDEO_DELIVERY_CONTRACT,
   exemplarStoryboard: EXEMPLAR_STORYBOARD,

@@ -51,6 +51,10 @@ export interface WorkflowEvent {
 export interface WorkflowRecord {
   id: string;
   carrier: WorkflowCarrier;
+  /** Stable agent-written name used in the workbench; progress lives in summary. */
+  displayName?: string | undefined;
+  /** Canonical project root used with carrier as the reusable workflow key. */
+  rootDirectory?: string | undefined;
   state: WorkflowState;
   revision: number;
   createdAt: string;
@@ -70,6 +74,10 @@ export interface PendingAction {
 export interface WorkflowSnapshot {
   workflowId: string;
   carrier: WorkflowCarrier;
+  displayName: string;
+  rootDirectory: string;
+  /** True when create_workflow returned the existing root + carrier workflow. */
+  reused?: boolean | undefined;
   state: WorkflowState;
   revision: number;
   updatedAt: string;

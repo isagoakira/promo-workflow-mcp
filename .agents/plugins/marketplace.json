@@ -29,10 +29,10 @@
       "category": "Productivity"
     },
     {
-      "name": "promo-article-appso",
+      "name": "promo-product-tweet-editor",
       "source": {
         "source": "local",
-        "path": "./plugins/promo-article-appso"
+        "path": "./plugins/promo-product-tweet-editor"
       },
       "policy": {
         "installation": "AVAILABLE",
@@ -72,6 +72,18 @@
       },
       "policy": {
         "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    },
+    {
+      "name": "promo-human-language-writing",
+      "source": {
+        "source": "local",
+        "path": "./plugins/promo-human-language-writing"
+      },
+      "policy": {
+        "installation": "INSTALLED_BY_DEFAULT",
         "authentication": "ON_INSTALL"
       },
       "category": "Productivity"

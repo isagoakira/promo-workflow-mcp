@@ -119,17 +119,21 @@ test("workflow advances with optimistic revisions and idempotency", async () => 
   });
   assert.equal(baselineStarted.state, "ALIGNING_BASELINE");
   assert.equal(baselineStarted.agentWork.stage, "baseline_alignment");
-  assert.deepEqual(baselineStarted.agentWork.guidance.policies.map((policy) => policy.id), ["promo-writing-supervision", "appso-article-contract"]);
-  assert.deepEqual(baselineStarted.agentWork.guidance.policies.map((policy) => policy.plugin), ["promo-product-writing", "promo-article-appso"]);
+  assert.deepEqual(baselineStarted.agentWork.guidance.policies.map((policy) => policy.id), ["human-language-writing", "promo-writing-supervision", "product-tweet-article-contract"]);
+  assert.deepEqual(baselineStarted.agentWork.guidance.policies.map((policy) => policy.plugin), ["promo-human-language-writing", "promo-product-writing", "promo-product-tweet-editor"]);
   assert.equal(baselineStarted.agentWork.inputs.competition.fanout, 2);
   assert.equal(baselineStarted.agentWork.inputs.competition.selectionMode, "top_p");
   assert.equal(baselineStarted.agentWork.constraints.some((constraint) => /select one primary recommendation/.test(constraint)), true);
   assert.equal(baselineStarted.agentWork.constraints.some((constraint) => /recommendationRationale/.test(constraint)), true);
   const guidance = await service.guidance(baselineStarted.workflowId);
-  assert.deepEqual(guidance.guides.map((guide) => guide.id), ["promo-writing-supervision", "appso-article-contract"]);
-  assert.match(guidance.guides[0].content, /Geek Product Promo Writing/);
-  assert.equal(guidance.guides[0].resources.length, 5);
-  assert.match(guidance.guides[0].resources[1].content, /中文句子级去 AI 味规则/);
+  assert.deepEqual(guidance.guides.map((guide) => guide.id), ["human-language-writing", "promo-writing-supervision", "product-tweet-article-contract"]);
+  const writingGuide = guidance.guides.find((guide) => guide.id === "promo-writing-supervision");
+  assert.ok(writingGuide);
+  assert.match(writingGuide.content, /Geek Product Promo Writing/);
+  assert.equal(writingGuide.resources.length, 5);
+  assert.match(writingGuide.resources[1].content, /中文句子级去 AI 味规则/);
+  const subsetGuidance = await service.guidance(baselineStarted.workflowId, ["promo-writing-supervision"]);
+  assert.deepEqual(subsetGuidance.guides.map((guide) => guide.id), ["human-language-writing", "promo-writing-supervision"]);
   await assert.rejects(
     service.guidance(baselineStarted.workflowId, ["promo-storyboard-supervision"]),
     /不允许加载指导/,
@@ -346,19 +350,19 @@ test("article workflow assembles a local preview before production lock and rele
   const candidates = await service.run({ workflowId: created.workflowId, expectedRevision: matching.revision, idempotencyKey: "article-match" });
   const selected = await service.commit({ workflowId: created.workflowId, expectedRevision: candidates.revision, kind: "select_topic", summary: "Select", context: { topicId: candidates.topicMatch.candidates[0].topicId, selectedMaterials: ["https://example.com/article-topic"] }, idempotencyKey: "article-select" });
   const baseline = await service.run({ workflowId: created.workflowId, expectedRevision: selected.revision, idempotencyKey: "article-baseline-brief" });
-  assert.equal(baseline.agentWork.guidance.policies.some((policy) => policy.id === "appso-article-contract"), true);
+  assert.equal(baseline.agentWork.guidance.policies.some((policy) => policy.id === "product-tweet-article-contract"), true);
   const proposed = await service.commit({ workflowId: created.workflowId, expectedRevision: baseline.revision, kind: "propose_baseline", summary: "Baseline", context: { baselineProposal: validBaselineProposal("Local state preserves repeatable work.", "Show one useful rerun.") }, idempotencyKey: "article-baseline" });
   const lockedBaseline = await service.commit({ workflowId: created.workflowId, expectedRevision: proposed.revision, kind: "lock_baseline", summary: "Lock baseline", context: {}, idempotencyKey: "article-lock-baseline" });
   const outlining = await service.run({ workflowId: created.workflowId, expectedRevision: lockedBaseline.revision, idempotencyKey: "article-outline-brief" });
-  assert.equal(outlining.agentWork.guidance.policies.some((policy) => policy.id === "appso-human-center-outline"), true);
+  assert.equal(outlining.agentWork.guidance.policies.some((policy) => policy.id === "product-tweet-human-center-outline"), true);
   const routes = await service.commit({ workflowId: created.workflowId, expectedRevision: outlining.revision, kind: "propose_creative_routes", summary: "Routes", context: { creativeRoutes: validCreativeRoutes() }, idempotencyKey: "article-routes" });
   const route = await service.commit({ workflowId: created.workflowId, expectedRevision: routes.revision, kind: "select_creative_route", summary: "Choose route", context: { routeId: "route-1" }, idempotencyKey: "article-route" });
-  assert.equal(route.agentWork.guidance.policies.some((policy) => policy.id === "appso-human-center-outline"), true);
+  assert.equal(route.agentWork.guidance.policies.some((policy) => policy.id === "product-tweet-human-center-outline"), true);
   const draft = await service.commit({ workflowId: created.workflowId, expectedRevision: route.revision, kind: "submit_outline_draft", summary: "Outline", context: { outlineDraft: validArticleOutlineDraft() }, idempotencyKey: "article-outline" });
   const lockedOutline = await service.commit({ workflowId: created.workflowId, expectedRevision: draft.revision, kind: "lock_outline", summary: "Lock outline", context: {}, idempotencyKey: "article-lock-outline" });
   const mastering = await service.run({ workflowId: created.workflowId, expectedRevision: lockedOutline.revision, idempotencyKey: "article-master-brief" });
-  assert.equal(mastering.agentWork.guidance.policies.some((policy) => policy.id === "appso-manuscript-proof"), true);
-  assert.equal(mastering.agentWork.guidance.policies.some((policy) => policy.id === "appso-visual-proof"), true);
+  assert.equal(mastering.agentWork.guidance.policies.some((policy) => policy.id === "product-tweet-manuscript-proof"), true);
+  assert.equal(mastering.agentWork.guidance.policies.some((policy) => policy.id === "product-tweet-visual-proof"), true);
   const master = await service.commit({ workflowId: created.workflowId, expectedRevision: mastering.revision, kind: "submit_master_draft", summary: "Master", context: { masterDraft: validArticleMasterDraft(), masterReview: validMasterReview("article") }, idempotencyKey: "article-master" });
   assert.equal(master.artifactRefs.some((artifact) => artifact.kind === "master_review"), true);
   const lockedMaster = await service.commit({ workflowId: created.workflowId, expectedRevision: master.revision, kind: "lock_master", summary: "Lock master", context: {}, idempotencyKey: "article-lock-master" });
@@ -380,7 +384,7 @@ test("article workflow assembles a local preview before production lock and rele
     context: { reviewArtifactId: reviewPacket.artifactId, acceptedRevision: review.revision, decision: "approve", comments: "Proceed to acquire the mapped article proof." },
     idempotencyKey: "article-human-review-approve",
   });
-  assert.equal(producing.agentWork.guidance.policies.some((policy) => policy.id === "appso-visual-proof"), true);
+  assert.equal(producing.agentWork.guidance.policies.some((policy) => policy.id === "product-tweet-visual-proof"), true);
   const updated = await service.commit({
     workflowId: created.workflowId, expectedRevision: producing.revision, kind: "update_production_units", summary: "Accept material",
     context: { units: producing.agentWork.inputs.requirements.units.map((unit) => ({ ...unit, status: "accepted" })), productionResults: producing.agentWork.inputs.requirements.units.map((unit, index) => productionResult(unit.id, `artifact_article_${index + 1}`)) },
@@ -391,10 +395,10 @@ test("article workflow assembles a local preview before production lock and rele
   assert.equal(assembled.artifactRefs.some((artifact) => artifact.kind === "article_document"), true);
   assert.equal(assembled.artifactRefs.some((artifact) => artifact.kind === "preview"), true);
   assert.equal(assembled.artifactRefs.some((artifact) => artifact.kind === "production_handoff"), true);
-  assert.equal(assembled.agentWork.guidance.policies.some((policy) => policy.id === "appso-preview-review"), true);
+  assert.equal(assembled.agentWork.guidance.policies.some((policy) => policy.id === "product-tweet-preview-review"), true);
   const lockedProduction = await service.commit({ workflowId: created.workflowId, expectedRevision: assembled.revision, kind: "lock_production", summary: "Approve preview", context: { previewAccepted: true }, idempotencyKey: "article-lock-production" });
   const packaging = await service.run({ workflowId: created.workflowId, expectedRevision: lockedProduction.revision, idempotencyKey: "article-package-brief" });
-  assert.equal(packaging.agentWork.guidance.policies.some((policy) => policy.id === "appso-release-packaging"), true);
+  assert.equal(packaging.agentWork.guidance.policies.some((policy) => policy.id === "product-tweet-release-packaging"), true);
   const evidence = packaging.agentWork.inputs.allowedEvidenceArtifactIds;
   const packaged = await service.commit({ workflowId: created.workflowId, expectedRevision: packaging.revision, kind: "submit_release_package", summary: "Package", context: { releasePackageDraft: validArticleReleaseDraft(evidence) }, idempotencyKey: "article-package" });
   const ready = await service.commit({ workflowId: created.workflowId, expectedRevision: packaged.revision, kind: "select_release_package", summary: "Select package", context: { titleId: "title-1", coverId: "cover-1" }, idempotencyKey: "article-select-package" });
@@ -558,7 +562,7 @@ function validMasterReview(carrier) {
     passed: true, evidenceBlockers: [], assetEfficiencyFindings: [],
     writingStyle: { skill: "geek-product-promo-writing", scope: "macro-meso-micro", passed: true, findings: ["Scene leads before mechanism."] },
     storyboardDirection: carrier === "video" ? { skill: "storyboard-direction", scope: "shot-continuity-coverage-assets", passed: true, findings: ["Continuity checked."] } : null,
-    articleEditorial: carrier === "article" ? { skill: "appso-product-editor", scope: "human-center-evidence-voice", passed: true, findings: ["The human concern remains connected to evidence."] } : null,
+    articleEditorial: carrier === "article" ? { skill: "product-tweet-editor", scope: "human-center-evidence-voice", passed: true, findings: ["The human concern remains connected to evidence."] } : null,
   };
 }
 

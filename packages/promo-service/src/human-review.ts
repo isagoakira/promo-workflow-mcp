@@ -708,7 +708,11 @@ function latestContentMaster(entries: readonly ArtifactEntry[]): ArtifactEntry |
 function latestEntry(entries: readonly ArtifactEntry[], kind: ArtifactKind): ArtifactEntry | undefined {
   return entries
     .filter((entry) => entry.ref.kind === kind)
-    .sort((left, right) => right.ref.revision - left.ref.revision)[0];
+    .sort((left, right) => {
+      const revisionDelta = right.ref.revision - left.ref.revision;
+      if (revisionDelta !== 0) return revisionDelta;
+      return right.ref.createdAt.localeCompare(left.ref.createdAt);
+    })[0];
 }
 
 function nestedBoolean(value: unknown, parentKey: string, key: string): boolean | undefined {

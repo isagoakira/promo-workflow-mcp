@@ -21,6 +21,7 @@ test("review host exposes only one workflow's projected longitudinal artifacts",
     workflows: {
       [workflowId]: {
         id: workflowId, carrier: "article", state: "AWAITING_HUMAN_REVIEW", revision: 9,
+        displayName: "本地 Agent 工作流推文", rootDirectory: "/projects/local-agent",
         summary: "Ready for review.", updatedAt: "2026-09-03T00:00:00.000Z", events: [],
       },
     },
@@ -42,12 +43,15 @@ test("review host exposes only one workflow's projected longitudinal artifacts",
     const list = await (await fetch(`${origin}/api/workflows`)).json();
     assert.equal(list.length, 1);
     assert.equal(list[0].workflowId, workflowId);
+    assert.equal(list[0].displayName, "本地 Agent 工作流推文");
+    assert.equal(list[0].rootDirectory, "/projects/local-agent");
 
     const review = await (await fetch(`${origin}/api/workflows/${workflowId}`)).json();
     assert.equal(review.steps[0].artifacts[0].kind, "selected_topic");
     assert.equal(review.steps[0].artifacts[0].content.topic.title, "A local-first agent workflow");
     assert.equal(review.steps[1].artifacts.length, 0);
     assert.equal(review.workflow.progress.node, 5);
+    assert.equal(review.workflow.displayName, "本地 Agent 工作流推文");
     assert.equal(review.steps[4].state, "current");
 
     const controller = new AbortController();

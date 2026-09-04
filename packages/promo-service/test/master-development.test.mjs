@@ -48,7 +48,7 @@ test("creates a master-development Agent-work capsule", () => {
   assert.equal(brief.stage, "master_development");
   assert.equal(brief.nextCommitKind, "submit_master_draft");
   assert.equal(brief.guidance.router, "promo_guidance");
-  assert.deepEqual(brief.guidance.policies.map((policy) => policy.id), ["promo-writing-supervision", "promo-storyboard-supervision", "product-voiceover-campaign", "promo-deliverable-exemplars"]);
+  assert.deepEqual(brief.guidance.policies.map((policy) => policy.id), ["human-language-writing", "promo-writing-supervision", "promo-storyboard-supervision", "product-voiceover-campaign", "promo-deliverable-exemplars"]);
   assert.match(brief.constraints.join(" "), /storyboard/i);
 });
 

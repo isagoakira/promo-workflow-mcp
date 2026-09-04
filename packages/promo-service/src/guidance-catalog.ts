@@ -16,6 +16,12 @@ export interface GuidanceGuide {
 }
 
 const CATALOG: Record<GuidanceId, GuidanceGuide> = {
+  "human-language-writing": {
+    id: "human-language-writing",
+    title: "人话写作监督",
+    content: PROMO_GUIDANCE_DOCUMENTS.humanLanguageWriting,
+    resources: PROMO_GUIDANCE_DOCUMENTS.humanLanguageWritingResources,
+  },
   "promo-writing-supervision": {
     id: "promo-writing-supervision",
     title: "Promo Writing Supervision",
@@ -28,12 +34,12 @@ const CATALOG: Record<GuidanceId, GuidanceGuide> = {
       { id: "video-package", title: "视频口播与跨平台包装", content: PROMO_GUIDANCE_DOCUMENTS.videoPackage },
     ],
   },
-  "appso-article-contract": appsoGuide("appso-article-contract", "AppSo Article Contract", "锁定推文的读者决定、人文中心、作者立场、贯穿线、情绪弧与证据姿态。缺少真实生活细节时，明确它是编辑选择或请求补充，而不是虚构回忆。", ["authorial-warmth", "evidence-standard"]),
-  "appso-human-center-outline": appsoGuide("appso-human-center-outline", "AppSo Human-center Outline", "用已锁定的人文中心选择最小文章路线，并将贯穿线、情绪推进、段落职责、开场与视觉证明安排进大纲。", ["authorial-warmth", "product-review-route", "update-explainer-route", "technology-explainer-route", "recommendation-route", "voice-and-structure", "annotated-sample-cards"]),
-  "appso-manuscript-proof": appsoGuide("appso-manuscript-proof", "AppSo Manuscript and Proof", "扩写文章主稿时，让作者像一个诚实的思考者存在，而不是把第一人称、情绪或热闹口号当作温度；每个重要判断仍要有比例适当的支持。", ["authorial-warmth", "evidence-standard", "voice-and-structure", "qa-scorecard"]),
-  "appso-visual-proof": appsoGuide("appso-visual-proof", "AppSo Visual Proof", "规划或制作文章素材时，把每张截图、录屏或图示绑定到紧邻的主张和可观察结果；不能用装饰图冒充真实产品证明。", ["evidence-standard", "voice-and-structure"]),
-  "appso-preview-review": appsoGuide("appso-preview-review", "AppSo Preview Review", "审阅本地文章预览时，检查素材是否仍在正确锚点之后、标题和结尾是否兑现正文，以及排版有没有把文章变冷或变成功能清单。", ["authorial-warmth", "voice-and-structure", "qa-scorecard"]),
-  "appso-release-packaging": appsoGuide("appso-release-packaging", "AppSo Release Packaging", "为已锁定文章写标题、摘要和封面语；承诺不能超过正文证据，结尾余味必须由文章已经建立的观察赚得。", ["voice-and-structure", "qa-scorecard"]),
+  "product-tweet-article-contract": productTweetGuide("product-tweet-article-contract", "APPSO 风格文章契约", "把文风控制胶囊的稳定上游部分映射到 articleEditorialIntent：编辑目光与人文中心、叙述人格与权限、读者决定、温度主线、注意力与情绪变化、事实边界。此节点不写大纲或成稿。", ["appso-style-model", "style-control-capsule", "authorial-warmth", "evidence-standard"]),
+  "product-tweet-human-center-outline": productTweetGuide("product-tweet-human-center-outline", "APPSO 风格文章大纲", "选择一个主导子类型，把已锁定的编辑意图展开为注意力动线、比例带、段落职责、转场、开场和视觉证明；比例是注意力预算，不是硬性章节配额。", ["appso-style-model", "style-control-capsule", "structure-and-proportion", "product-review-route", "update-explainer-route", "technology-explainer-route", "recommendation-route", "annotated-sample-cards"]),
+  "product-tweet-manuscript-proof": productTweetGuide("product-tweet-manuscript-proof", "APPSO 风格文章主稿", "在锁定事实和大纲内完成宏观、中观、微观三层迁移。作者通过选择、节奏、反应与有边界的判断在场；量化是可选证据，不是文章引擎。提交前先过真实门，再做整体文风审查。", ["appso-style-model", "authorial-warmth", "evidence-standard", "structure-and-proportion", "style-migration-protocol", "voice-and-structure", "style-similarity-audit"]),
+  "product-tweet-visual-proof": productTweetGuide("product-tweet-visual-proof", "APPSO 风格视觉证明", "把截图、录屏和图示放在读者刚需要看清产品行为的位置，并绑定紧邻的判断、解释或节奏职责；真实界面和结果不能用装饰图替代。", ["evidence-standard", "structure-and-proportion", "voice-and-structure"]),
+  "product-tweet-preview-review": productTweetGuide("product-tweet-preview-review", "APPSO 风格预览审查", "检查排版后的编辑目光、叙述者距离、温度主线、注意力动线、段落呼吸、句子声音和证据锚点。按最早漂移层给出回流位置，不在预览节点静默重写语义。", ["appso-style-model", "style-control-capsule", "style-similarity-audit", "evidence-standard"]),
+  "product-tweet-release-packaging": productTweetGuide("product-tweet-release-packaging", "APPSO 风格发布包装", "标题、摘要和封面语只压缩正文已建立的编辑目光、可见条件、读者决定和余味；不得新增命题、强度或未被正文证明的数字。", ["appso-style-model", "voice-and-structure", "style-similarity-audit"]),
   "promo-storyboard-supervision": {
     id: "promo-storyboard-supervision",
     title: "Promo Storyboard Supervision",
@@ -61,7 +67,7 @@ const CATALOG: Record<GuidanceId, GuidanceGuide> = {
   },
 };
 
-function appsoGuide(
+function productTweetGuide(
   id: GuidanceId,
   title: string,
   stageInstruction: string,
@@ -70,8 +76,8 @@ function appsoGuide(
   return {
     id,
     title,
-    content: `${PROMO_GUIDANCE_DOCUMENTS.appsoProductEditor}\n\n## 当前节点\n\n${stageInstruction}`,
-    resources: PROMO_GUIDANCE_DOCUMENTS.appsoProductEditorResources.filter((resource) => resourceIds.includes(resource.id)),
+    content: `${PROMO_GUIDANCE_DOCUMENTS.productTweetEditor}\n\n## 当前节点\n\n${stageInstruction}`,
+    resources: PROMO_GUIDANCE_DOCUMENTS.productTweetEditorResources.filter((resource) => resourceIds.includes(resource.id)),
   };
 }
 

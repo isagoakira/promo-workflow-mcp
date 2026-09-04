@@ -1,0 +1,18 @@
+{
+  "name": "promo-product-tweet-editor",
+  "version": "0.3.0",
+  "description": "Optional APPSO-style editorial transfer and audit Skills for Promo Workflow technology-product articles.",
+  "author": {
+    "name": "Local developer"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "科技产品推文编辑（APPSO 风格）",
+    "shortDescription": "按工作流节点迁移和审查 APPSO 整体编辑风格。",
+    "longDescription": "把 APPSO 的编辑目光、作者温度、文章动线、段落呼吸和句子声音拆分到 article 载体的对应节点；不复制原句，不触发视频任务，也不替代 Promo Workflow 的状态、版本和人工确认。",
+    "developerName": "Local developer",
+    "category": "Productivity",
+    "capabilities": ["APPSO 风格文章契约", "APPSO 风格迁移", "整体文风审查"],
+    "defaultPrompt": "按当前 Promo Workflow 节点迁移或审查科技产品推文的 APPSO 整体文风。"
+  }
+}

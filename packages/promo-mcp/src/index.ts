@@ -4,6 +4,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import * as z from "zod/v4";
 import { discoverAdapterStatus, type ProductionAdapterStatus } from "./adapter-registry.js";
 import { startReviewHost } from "./review-host.js";
+import { reviewUrlFor, workbenchFor, type PromoWorkbenchLink } from "./workbench.js";
 import {
   JsonWorkflowStore,
   ArtifactStore,
@@ -75,8 +76,8 @@ export function createPromoServer(service: WorkflowService, runtime: PromoRuntim
   server.registerTool(
     "promo_get",
     {
-      title: "查看宣传工作流",
-      description: "读取一个工作流，或列出本地全部宣传工作流及其当前节点。",
+      title: "查看宣传工作流与工作台",
+      description: "读取工作流及其当前节点，并返回由 MCP 自动启动的只读工作台链接。Agent 应主动向用户展示或打开该链接。",
       inputSchema: {
         workflowId: z.string().min(1).optional(),
       },
@@ -91,8 +92,13 @@ export function createPromoServer(service: WorkflowService, runtime: PromoRuntim
       try {
         return response(
           workflowId
-            ? { ...await service.get(workflowId), adapterStatus: runtime.adapterStatus, reviewUrl: reviewUrlFor(runtime.reviewUrl, workflowId) }
-            : { workflows: await service.list(), adapterStatus: runtime.adapterStatus, reviewUrl: runtime.reviewUrl },
+            ? withRuntime(await service.get(workflowId), runtime, workflowId)
+            : {
+              workflows: await service.list(),
+              adapterStatus: runtime.adapterStatus,
+              reviewUrl: runtime.reviewUrl,
+              workbench: workbenchFor(runtime.reviewUrl),
+            },
         );
       } catch (error) {
         return errorResponse(error);
@@ -103,8 +109,8 @@ export function createPromoServer(service: WorkflowService, runtime: PromoRuntim
   server.registerTool(
     "promo_review",
     {
-      title: "打开宣传工作流审核台",
-      description: "返回当前本地 Promo 审核台地址。审核台按七个节点实时展示已锁定制品与当前进度，只读且不绕过人工审核门禁。",
+      title: "打开宣传工作流工作台",
+      description: "返回由 MCP 自动启动的工作台直达地址。它实时监控七节点、制品、待办、版本和人工审核点；只读，不绕过任何门禁。",
       inputSchema: {
         workflowId: z.string().min(1).optional(),
       },
@@ -118,9 +124,8 @@ export function createPromoServer(service: WorkflowService, runtime: PromoRuntim
     async ({ workflowId }) => {
       if (!runtime.reviewUrl) return errorResponse(new Error("本地审核台未启动。请运行 npm run review，或检查 PROMO_REVIEW_PORT。"));
       return response({
-        url: reviewUrlFor(runtime.reviewUrl, workflowId),
-        workflowId: workflowId ?? null,
-        note: "页面随 Promo Workflow 的状态和制品更新自动刷新；批准、退回和拒绝仍通过 promo_commit 提交。",
+        workbench: workbenchFor(runtime.reviewUrl, workflowId),
+        note: "页面随流程状态和制品自动刷新。它负责看见进度与证据；批准、退回和拒绝仍必须通过 promo_commit 提交。",
       });
     },
   );
@@ -129,7 +134,7 @@ export function createPromoServer(service: WorkflowService, runtime: PromoRuntim
     "promo_guidance",
     {
       title: "加载当前节点指导",
-      description: "读取当前 agentWork 所声明的 MCP 内置完整指导。promo_get 只返回简短 policy 概览；开始创意、写作或分镜前按其中的 router 调用本工具。",
+      description: "读取当前 agentWork 所声明的 MCP 内置完整指导。promo_get 只返回简短 policy 概览；开始创意、写作或分镜前按其中的 router 调用本工具。高优先级指导会自动前置并随请求加载。",
       inputSchema: {
         workflowId: z.string().min(1),
         guideIds: z.array(z.enum(GUIDANCE_IDS)).min(1).optional(),
@@ -169,9 +174,11 @@ export function createPromoServer(service: WorkflowService, runtime: PromoRuntim
     },
     async ({ workflowId, expectedRevision, idempotencyKey }) => {
       try {
-        return response(
+        return response(withRuntime(
           await service.run({ workflowId, expectedRevision, idempotencyKey }),
-        );
+          runtime,
+          workflowId,
+        ));
       } catch (error) {
         return errorResponse(error);
       }
@@ -183,11 +190,13 @@ export function createPromoServer(service: WorkflowService, runtime: PromoRuntim
     {
       title: "确认宣传工作流决策",
       description:
-        "创建工作流，或写入一个经过用户确认的选材、基调、大纲、主稿、制作或发布包决策。",
+        "创建或复用以根目录和视频/推文载体区分的工作流，或写入一个经过用户确认的选材、基调、大纲、主稿、制作或发布包决策。",
       inputSchema: {
         kind: z.enum(commitKinds),
         workflowId: z.string().min(1).optional(),
         carrier: z.enum(carriers).optional(),
+        displayName: z.string().min(1).max(120).optional().describe("由 Agent 写的一句稳定工作流名称，供工作台展示；不使用工作流 ID。"),
+        rootDirectory: z.string().min(1).max(4096).optional().describe("该宣传项目的根目录。同一根目录最多复用一个视频和一个推文工作流。"),
         expectedRevision: z.number().int().positive().optional(),
         startAtNode: z.number().int().min(1).max(7).optional(),
         summary: z.string().min(1).max(4000),
@@ -207,22 +216,23 @@ export function createPromoServer(service: WorkflowService, runtime: PromoRuntim
           if (!input.carrier) {
             throw new Error("创建工作流需要 carrier：video 或 article。");
           }
-          return response(
-            await service.create({
+          const snapshot = await service.create({
               carrier: input.carrier as WorkflowCarrier,
               summary: input.summary,
+              displayName: input.displayName,
+              rootDirectory: input.rootDirectory,
               context: input.context,
               startAtNode: input.startAtNode,
               idempotencyKey: input.idempotencyKey,
-            }),
-          );
+            });
+          return response(withRuntime(snapshot, runtime, snapshot.workflowId));
         }
 
         if (!input.workflowId || !input.expectedRevision) {
           throw new Error("除 create_workflow 外，提交决策需要 workflowId 和 expectedRevision。");
         }
 
-        return response(
+        return response(withRuntime(
           await service.commit({
             workflowId: input.workflowId,
             expectedRevision: input.expectedRevision,
@@ -231,7 +241,9 @@ export function createPromoServer(service: WorkflowService, runtime: PromoRuntim
             context: input.context,
             idempotencyKey: input.idempotencyKey,
           }),
-        );
+          runtime,
+          input.workflowId,
+        ));
       } catch (error) {
         return errorResponse(error);
       }
@@ -261,6 +273,7 @@ async function main() {
     reviewUrl = `http://${reviewHost}:${reviewPort}`;
     try {
       await startReviewHost({ dataDirectory: dataDir, host: reviewHost, port: reviewPort });
+      console.error(`Promo 工作台已启动：${reviewUrl}`);
     } catch (error) {
       const code = typeof error === "object" && error !== null ? (error as NodeJS.ErrnoException).code : undefined;
       if (code !== "EADDRINUSE") throw error;
@@ -274,9 +287,17 @@ async function main() {
   await server.connect(new StdioServerTransport());
 }
 
-function reviewUrlFor(baseUrl: string | undefined, workflowId: string | undefined): string | undefined {
-  if (!baseUrl || !workflowId) return baseUrl;
-  return `${baseUrl}/?workflowId=${encodeURIComponent(workflowId)}`;
+function withRuntime<T extends object>(snapshot: T, runtime: PromoRuntimeStatus, workflowId: string): T & {
+  adapterStatus: readonly ProductionAdapterStatus[];
+  reviewUrl: string | undefined;
+  workbench: PromoWorkbenchLink;
+} {
+  return {
+    ...snapshot,
+    adapterStatus: runtime.adapterStatus,
+    reviewUrl: reviewUrlFor(runtime.reviewUrl, workflowId),
+    workbench: workbenchFor(runtime.reviewUrl, workflowId),
+  };
 }
 
 void main().catch((error) => {

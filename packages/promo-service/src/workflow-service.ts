@@ -95,6 +95,8 @@ export type CommitKind = keyof typeof COMMIT_TRANSITIONS
 export interface CreateWorkflowInput {
   carrier: WorkflowCarrier;
   summary: string;
+  displayName?: string | undefined;
+  rootDirectory?: string | undefined;
   context: Record<string, unknown>;
   idempotencyKey: string;
   /** Optional 1–7 node from which an existing project is being continued. */
@@ -133,6 +135,14 @@ export class WorkflowService {
       return existing;
     }
 
+    const rootDirectory = resolveWorkflowRoot(input.rootDirectory ?? input.context.rootDirectory);
+    const reusable = Object.values(data.workflows).find((record) =>
+      record.carrier === input.carrier && resolveWorkflowRoot(record.rootDirectory ?? record.context.rootDirectory) === rootDirectory,
+    );
+    if (reusable) {
+      return { ...await this.toSnapshot(reusable), reused: true };
+    }
+
     const requestedStartNode = input.startAtNode ?? optionalStartNode(input.context.startAtNode) ?? 1;
     if (requestedStartNode > 1 && !this.workspace) {
       throw new Error("从中间节点启动需要启用项目工作区，以便导入和审计现有进度材料。");
@@ -146,6 +156,8 @@ export class WorkflowService {
     const record: WorkflowRecord = {
       id,
       carrier: input.carrier,
+      displayName: workflowDisplayName(input.displayName, input.summary),
+      rootDirectory,
       state: "READY",
       revision: 1,
       createdAt: now,
@@ -204,7 +216,11 @@ export class WorkflowService {
       throw new Error("当前节点没有可加载的指导。请先调用 promo_run 生成 agentWork。");
     }
     const allowedIds = work.guidance.policies.map((policy) => policy.id);
-    const ids = requestedIds === undefined ? allowedIds : [...new Set(requestedIds)];
+    const requested = requestedIds === undefined ? allowedIds : [...new Set(requestedIds)];
+    const highPriorityIds = work.guidance.policies
+      .filter((policy) => policy.priority === "high")
+      .map((policy) => policy.id);
+    const ids = [...new Set([...highPriorityIds, ...requested])];
     const unavailable = ids.filter((id) => !allowedIds.includes(id));
     if (unavailable.length > 0) {
       throw new Error(`当前节点不允许加载指导：${unavailable.join(", ")}。可用：${allowedIds.join(", ")}。`);
@@ -319,7 +335,7 @@ export class WorkflowService {
           ...(usesVectCut ? ["After VectCut generates the draft, review it in the editor before lock_production; submit vectcutDraftAccepted and vectcutReviewNote only after that review."] : []),
         ],
         nextCommitKind: "update_production_units",
-        guidance: createGuidanceRequest(record.carrier === "article" ? ["appso-visual-proof"] : []),
+        guidance: createGuidanceRequest(record.carrier === "article" ? ["human-language-writing", "product-tweet-visual-proof"] : []),
       });
       const productionContext = withArtifact(record.context, artifact, {
         productionPlanArtifactId: artifact.artifactId,
@@ -370,7 +386,7 @@ export class WorkflowService {
             requestedOutput: { description: "A local article preview review before production lock.", fields: ["previewAccepted", "findings"] },
             validationRules: ["Submit previewAccepted: true only through promo_commit(kind=lock_production).", "Return to the affected upstream artifact when a finding changes locked meaning or evidence."],
             nextCommitKind: "lock_production",
-            guidance: createGuidanceRequest(["appso-preview-review"]),
+            guidance: createGuidanceRequest(["human-language-writing", "product-tweet-preview-review"]),
           }),
         };
         const handoff = await this.artifacts.write({
@@ -1078,8 +1094,8 @@ export class WorkflowService {
         purpose: "用户已比较过的创意方向及其选择依据。",
       },
       guidance: createGuidanceRequest(record.carrier === "video"
-        ? ["promo-writing-supervision", "product-voiceover-campaign", "promo-deliverable-exemplars"]
-        : ["promo-writing-supervision", "appso-human-center-outline"]),
+        ? ["human-language-writing", "promo-writing-supervision", "product-voiceover-campaign", "promo-deliverable-exemplars"]
+        : ["human-language-writing", "promo-writing-supervision", "product-tweet-human-center-outline"]),
     });
   }
 
@@ -1357,6 +1373,8 @@ export class WorkflowService {
     return {
       workflowId: record.id,
       carrier: record.carrier,
+      displayName: workflowDisplayName(record.displayName, record.summary),
+      rootDirectory: resolveWorkflowRoot(record.rootDirectory ?? record.context.rootDirectory),
       state: record.state,
       revision: record.revision,
       updatedAt: record.updatedAt,
@@ -1382,6 +1400,8 @@ export class WorkflowService {
     const deliverables = await this.workspace.sync({
       workflowId: record.id,
       carrier: record.carrier,
+      displayName: workflowDisplayName(record.displayName, record.summary),
+      rootDirectory: resolveWorkflowRoot(record.rootDirectory ?? record.context.rootDirectory),
       state: record.state,
       revision: record.revision,
       summary: record.summary,
@@ -1413,6 +1433,15 @@ function requireWorkflow(record: WorkflowRecord | undefined, workflowId: string)
     throw new Error(`Unknown workflow ${workflowId}. Create one with promo_commit(kind=create_workflow).`);
   }
   return record;
+}
+
+function resolveWorkflowRoot(value: unknown): string {
+  const root = optionalText(value);
+  return resolve(root ?? ".");
+}
+
+function workflowDisplayName(value: unknown, fallback: string): string {
+  return optionalText(value) ?? fallback;
 }
 
 function assertRevision(record: WorkflowRecord, expectedRevision: number): void {
@@ -2472,13 +2501,13 @@ function readMasterReview(value: unknown, carrier: "video" | "article"): MasterR
 
 function readArticleEditorialReview(value: unknown): NonNullable<MasterReview["articleEditorial"]> {
   if (!isRecord(value)
-    || value.skill !== "appso-product-editor"
+    || (value.skill !== "product-tweet-editor" && value.skill !== "appso-product-editor")
     || value.scope !== "human-center-evidence-voice"
     || typeof value.passed !== "boolean") {
-    throw new Error("masterReview.articleEditorial must contain an explicit appso-product-editor review.");
+    throw new Error("masterReview.articleEditorial must contain an explicit product-tweet-editor review.");
   }
   return {
-    skill: "appso-product-editor",
+    skill: "product-tweet-editor",
     scope: "human-center-evidence-voice",
     passed: value.passed,
     findings: readStringArrayOrEmpty(value.findings, "masterReview.articleEditorial.findings"),
@@ -2512,8 +2541,8 @@ function createBaselineRevisionBrief(proposal: ReturnType<typeof readBaselinePro
     validationRules: ["Set incorporatesDecisionIds to the decision id in latestDecision.", "Submit through promo_commit(kind=propose_baseline)."],
     nextCommitKind: "propose_baseline",
     guidance: createGuidanceRequest(carrier === "article"
-      ? ["promo-writing-supervision", "appso-article-contract"]
-      : ["promo-writing-supervision"]),
+      ? ["human-language-writing", "promo-writing-supervision", "product-tweet-article-contract"]
+      : ["human-language-writing", "promo-writing-supervision"]),
     decisionCard: {
       node: 2, label: "宣传意图修订", known: ["你刚完成一个场景选择。"],
       recommendation: "让这个选择改变表达主次，而不是只换一处措辞。", userDecision: null,
@@ -2542,8 +2571,8 @@ function createMasterRevisionBrief(
     validationRules: ["Set incorporatesDecisionIds to the decision id in latestDecision.", "Submit through promo_commit(kind=submit_master_draft)."],
     nextCommitKind: "submit_master_draft",
     guidance: createGuidanceRequest(creativeOutline.outline.carrier === "article"
-      ? ["promo-writing-supervision", "appso-manuscript-proof", "appso-visual-proof"]
-      : ["promo-writing-supervision", "promo-storyboard-supervision", "product-voiceover-campaign", "promo-deliverable-exemplars"]),
+      ? ["human-language-writing", "promo-writing-supervision", "product-tweet-manuscript-proof", "product-tweet-visual-proof"]
+      : ["human-language-writing", "promo-writing-supervision", "promo-storyboard-supervision", "product-voiceover-campaign", "promo-deliverable-exemplars"]),
     decisionCard: {
       node: 4, label: "主稿修订", known: ["一个阻塞性场景选择已确认。"],
       recommendation: "让选择影响正文/分镜的段落推进与证据，而不是局部补丁。", userDecision: null,

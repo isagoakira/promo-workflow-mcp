@@ -449,7 +449,7 @@ export interface MasterReview {
     findings: readonly string[];
   } | null;
   articleEditorial: {
-    skill: "appso-product-editor";
+    skill: "product-tweet-editor";
     scope: "human-center-evidence-voice";
     passed: boolean;
     findings: readonly string[];

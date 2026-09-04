@@ -21,6 +21,8 @@ export interface WorkspaceDeliverableRef {
 export interface SyncWorkflowWorkspaceInput {
   workflowId: string;
   carrier: "video" | "article";
+  displayName?: string | undefined;
+  rootDirectory?: string | undefined;
   state: string;
   revision: number;
   summary: string;
@@ -122,6 +124,8 @@ export class WorkspaceDeliverables {
     const manifest = {
       workflowId: input.workflowId,
       carrier: input.carrier,
+      displayName: input.displayName ?? input.summary,
+      rootDirectory: input.rootDirectory ?? null,
       state: input.state,
       revision: input.revision,
       summary: input.summary,

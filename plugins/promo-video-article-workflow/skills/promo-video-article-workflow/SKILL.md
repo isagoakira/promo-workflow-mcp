@@ -11,7 +11,7 @@ Use this Skill as the campaign entry point. `promo_workflow` supplies the state,
 
 Enter the MCP workflow when the user is building or continuing a promotional video or article as a campaign, even if they only name one apparent task such as “write the outline” or “make a storyboard.” Use ordinary creative work instead only when the user clearly wants an isolated draft with no campaign state, approvals, or deliverable lineage.
 
-- For a new campaign, create it with `promo_commit(kind=create_workflow)`, then immediately call `promo_get`.
+- For a new campaign, create it with `promo_commit(kind=create_workflow)`, passing the project `rootDirectory` and a concise, agent-written `displayName` that a human can recognize in the workbench. The MCP allows one video and one tweet workflow at that root; if it returns `reused: true`, continue that existing workflow instead of creating a parallel duplicate. Then immediately call `promo_get`.
 - For an existing campaign, start with `promo_get`. Do not rely on a remembered stage, projected file, or a previous conversation summary.
 - If the `promo_workflow` MCP is unavailable, say that the managed workflow cannot be advanced and do not imitate its state transitions in files.
 
@@ -35,7 +35,7 @@ Make the workflow legible whenever its MCP is used. After the opening `promo_get
 
 Use the capsule’s `decisionCard.node` and `decisionCard.label` when available; otherwise translate the returned state and `pendingAction` into a short business label. Do not make users read raw enum names, revisions, IDs, or tool payloads.
 
-`promo_get` returns `reviewUrl` whenever the local review desk is available. Treat it as the workflow’s primary visual surface: surface or open the workflow-specific URL after the opening read and after each state-changing call, so the user can see the seven-node progress line and the frozen evidence in order. If only a general URL is known, call `promo_review` with the current workflow ID. The review desk is read-only; it never replaces the commit, revision, or human-review gate.
+`promo_get`, `promo_run`, and `promo_commit` return `workbench`. The MCP starts this local desk by default; after the opening read and every state-changing call, proactively surface its workflow-specific URL. When the host can open a local webpage, open it as well. The workbench is the primary visual surface for seven-node progress, frozen evidence, pending work, version, and human-review points; it is read-only and never replaces the commit, revision, or human-review gate. If `workbench.url` is null, call `promo_review` once and report its explicit startup problem.
 
 ```text
 工作流状态｜节点 {编号或业务名称}
@@ -60,7 +60,8 @@ Do not emit a duplicate note for a pure read that leaves the node unchanged. At 
 The current capsule decides which specialized Skills apply. Load all of its requested guides before drafting a creative deliverable, but do not load deep writing or production guidance for a status check or a deterministic transition.
 
 - Each policy's `plugin` field identifies the optional capability pack that sharpens this task. Its absence must never be faked: `promo_guidance` remains the canonical, MCP-owned guide and the node still cannot be skipped.
-- Article nodes may request AppSo editorial guidance.
+- When a policy has `priority: high`, load and apply it before every normal-priority writing, platform, or production guide. In the current workflow, `human-language-writing` is the human-language gate: it must inspect the human anchor, four AI-cliche risks, evidence boundary, and spoken readability before later polishing. `promo_guidance` automatically keeps high-priority policies in the response even when a caller requests a subset.
+- Article nodes may request public-account editorial guidance.
 - Video nodes may request storyboard, voiceover, and delivery-contract guidance.
 - The current Skill remains the caller: specialized Skills shape the deliverable; the MCP state machine decides when it may be committed.
 

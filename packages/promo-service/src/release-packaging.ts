@@ -110,8 +110,8 @@ export function createReleasePackagingBrief(input: CreateReleasePackagingBriefIn
     ],
     nextCommitKind: "submit_release_package",
     guidance: createGuidanceRequest(input.production.carrier === "article"
-      ? ["promo-writing-supervision", "appso-release-packaging"]
-      : ["promo-writing-supervision"]),
+      ? ["human-language-writing", "promo-writing-supervision", "product-tweet-release-packaging"]
+      : ["human-language-writing", "promo-writing-supervision"]),
   });
 }
 
