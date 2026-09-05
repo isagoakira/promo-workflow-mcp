@@ -506,7 +506,8 @@ function renderMasterReview(value: unknown): string[] {
   if (!object) return renderReadable(value);
   const review = asRecord(object.review) ?? object;
   const lines: string[] = [];
-  pushField(lines, "总体结果", booleanValue(review.passed) === true ? "通过" : booleanValue(review.passed) === false ? "未通过" : undefined);
+  pushField(lines, "总体结果", booleanValue(review.passed) === true ? (review.audit ? "编辑审计通过（不等于人工批准）" : "历史通过记录（未附新版验证依据）") : booleanValue(review.passed) === false ? "未通过或尚未验证" : undefined);
+  pushField(lines, "版本化审计依据", review.audit);
   pushField(lines, "证据阻塞", review.evidenceBlockers);
   const writingStyle = asRecord(review.writingStyle);
   if (writingStyle) {
@@ -556,6 +557,8 @@ function renderRequirements(value: unknown): string[] {
       });
     }
     pushField(lines, "限制条件", requirement.constraints);
+    pushField(lines, "采集协议", requirement.captureProtocol);
+    pushField(lines, "制作流程", requirement.productionProcedure ?? "尚待细化");
     pushField(lines, "复用次数", requirement.reuseCount);
   });
   return lines;

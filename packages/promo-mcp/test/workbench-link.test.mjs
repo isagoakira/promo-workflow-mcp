@@ -3,12 +3,13 @@ import test from "node:test";
 
 import { workbenchFor } from "../dist/workbench.js";
 
-test("workbench link exposes a workflow-scoped, read-only monitoring surface", () => {
+test("workbench link exposes a workflow-scoped text review surface without approving content", () => {
   const workbench = workbenchFor("http://127.0.0.1:4173", "wf-123");
 
   assert.equal(workbench.url, "http://127.0.0.1:4173/?workflowId=wf-123");
   assert.equal(workbench.workflowId, "wf-123");
-  assert.match(workbench.role, /只读监控/);
+  assert.match(workbench.role, /正文只读/);
+  assert.match(workbench.role, /批注不等于批准/);
   assert.match(workbench.agentAction, /主动向用户展示/);
 });
 

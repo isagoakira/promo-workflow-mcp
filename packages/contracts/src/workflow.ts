@@ -51,6 +51,8 @@ export interface CampaignIntentCard {
 
 /** A factual editorial contract, not a license to invent lived experience. */
 export interface ArticleEditorialIntent {
+  /** User-selected expression control, never a quality score. */
+  proseLooseness?: number | null;
   readerDecision: string;
   humanCenter: string;
   authorStance: string;
@@ -434,6 +436,23 @@ export interface ArticleManuscriptMaster {
 export type ContentMaster = VideoTimelineMaster | ArticleManuscriptMaster;
 
 export interface MasterReview {
+  audit?: {
+    masterHash: string;
+    requirementsHash: string;
+    rationale: string;
+    findings: readonly {
+      id: string;
+      location: string;
+      layer: "macro" | "meso" | "micro";
+      severity: "critical" | "normal";
+      evidence: string;
+      action: string;
+      preserve: string;
+      acceptance: string;
+      verified: boolean;
+      verification: string;
+    }[];
+  };
   passed: boolean;
   evidenceBlockers: readonly string[];
   writingStyle: {
@@ -506,6 +525,8 @@ export type MasterCommit =
 export type MaterialPriority = "blocking" | "required" | "optional";
 
 export interface MaterialRequirement {
+  captureProtocol?: SourceAssetCaptureProtocol;
+  productionProcedure?: string;
   id: string;
   purpose: string;
   specification: string;

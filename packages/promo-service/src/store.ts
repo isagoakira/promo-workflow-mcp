@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile, rmdir } from "node:fs/promises";
 import { dirname } from "node:path";
 
 import type { WorkflowStoreData } from "./types.js";
@@ -10,6 +10,22 @@ const EMPTY_STORE: WorkflowStoreData = {
 
 export class JsonWorkflowStore {
   constructor(private readonly filePath: string) {}
+
+  /** Serialize read-modify-write across MCP and review-host processes. Never steal a live lock. */
+  async exclusive<T>(operation: () => Promise<T>): Promise<T> {
+    await mkdir(dirname(this.filePath), { recursive: true });
+    const lock = `${this.filePath}.lock`;
+    const deadline = Date.now() + 10000;
+    for (;;) {
+      try { await mkdir(lock); break; }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+        if (Date.now() >= deadline) throw new Error(`Workflow store busy (${lock}); retry, or inspect an abandoned lock after a crashed writer.`);
+        await new Promise(resolve => setTimeout(resolve, 40));
+      }
+    }
+    try { return await operation(); } finally { await rmdir(lock); }
+  }
 
   async read(): Promise<WorkflowStoreData> {
     try {

@@ -17,7 +17,11 @@ Enter the MCP workflow when the user is building or continuing a promotional vid
 
 ## One control loop
 
-Read `pendingAction`, `revision`, `agentWork`, and the referenced artifacts from every `promo_get` response. Then perform only the returned action:
+Read `pendingAction`, `revision`, `agentWork`, `reviewFeedback`, and the referenced artifacts from every `promo_get` response. Before the node action, handle saved text feedback unless the current user asks to defer edits. Read original text with `promo_text_review`, diagnose related comments together, and reply to every exact annotation revision. Submit `context.annotationReceipts` with the revised deliverable: `{annotationId, annotationRevision, action: "changed", reply, verification?}`. The service binds it to the new text artifact from that commit. For explanation or a blocking question without a revision, use `reply_annotations` with action `explained` or `needs_input`. Reading is not completion. Never treat comments as approval or as permission to change unrelated locked requirements; use the existing human-review return path for locked content. Saving a comment does not start a background turn.
+
+Then perform only the returned action:
+
+When an actionable annotation targets already locked text outside the current editable node, use `request_text_revision` with `annotations:[{id,revision}]` and `revisionReason` stating the scoped user request. It reuses the existing return path and preserves earlier decisions; it is not approval or a completed reply. Unclear or conflicting feedback needs a question instead. Do not use it merely because old comments exist. Then follow the returned node and submit the revised text plus receipts.
 
 | `pendingAction.type` | Required response |
 | --- | --- |
@@ -29,7 +33,7 @@ Read `pendingAction`, `revision`, `agentWork`, and the referenced artifacts from
 
 An `agent_work` capsule is a task brief, not a node deliverable. After `promo_run` returns one, continue the same control loop: load its guidance, produce the requested output, validate it, and submit `agentWork.nextCommitKind` before ending the turn. Stop earlier only for a genuinely blocking user decision, missing evidence or authority, or an explicit tool failure. Never report a node as delivered merely because its task brief now appears in the workbench.
 
-The workbench may display that capsule as **当前任务简报** while the current node has no artifact yet. This prevents a blank review surface, but it does not satisfy the node. The formal deliverable remains the artifact created by the declared commit.
+The workbench may display that capsule as **当前任务简报** while the current node has no artifact yet. This prevents a blank review surface, but it does not satisfy the node. The formal deliverable remains the artifact created by the declared commit. At REQUIREMENTS_READY, first submit_requirement_details with baseArtifactId and details[{requirementId,productionProcedure}]; include a substantive executionReview:{passed:true,evidence} only when steps and every usageId are executable. Draft details can be saved without that review. Then request the existing human review.
 
 After every `promo_run` or `promo_commit`, use the returned revision for the next call. Never advance because a later output “looks ready.”
 
@@ -39,7 +43,7 @@ Make the workflow legible whenever its MCP is used. After the opening `promo_get
 
 Use the capsule’s `decisionCard.node` and `decisionCard.label` when available; otherwise translate the returned state and `pendingAction` into a short business label. Do not make users read raw enum names, revisions, IDs, or tool payloads.
 
-`promo_get`, `promo_run`, and `promo_commit` return `workbench`. The MCP starts this local desk by default; after the opening read and every state-changing call, proactively surface its workflow-specific URL. When the host can open a local webpage, open it as well. The workbench is the primary visual surface for seven-node progress, frozen evidence, pending work, version, and human-review points; it is read-only and never replaces the commit, revision, or human-review gate. If `workbench.url` is null, call `promo_review` once and report its explicit startup problem.
+`promo_get`, `promo_run`, and `promo_commit` return `workbench`. The MCP starts this local desk by default; after the opening read and every state-changing call, proactively surface its workflow-specific URL. When the host can open a local webpage, open it as well. The workbench shows seven-node progress, evidence, text annotations and version comparisons. Document text remains read-only; saved comments never replace commit, revision or human approval. If `workbench.url` is null, call `promo_review` once and report its explicit startup problem.
 
 ```text
 工作流状态｜节点 {编号或业务名称}

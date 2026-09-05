@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { contentHash, readAudit, validateEditorialAudit } from "./editorial-audit.js";
+import { feedbackFor, feedbackSnapshot, latestAnnotations, validateAnnotation, readReceipts, isTextArtifact, textFamily, textFields, locateAnchor } from "./text-feedback.js";
 import { resolve } from "node:path";
 
 import type { ArticleManuscriptMaster, ArticlePlatformBranch, PlatformProfile, WorkflowState } from "@promo-workflow/contracts";
@@ -46,6 +48,7 @@ import type {
   WorkflowEventKind,
   WorkflowRecord,
   WorkflowSnapshot,
+  WorkflowStoreData,
 } from "./types.js";
 
 const RUN_TRANSITIONS: Partial<Record<WorkflowState, WorkflowState>> = {
@@ -74,6 +77,7 @@ const COMMIT_TRANSITIONS = {
   submit_master_draft: { from: "ALIGNING_MASTER", to: "ALIGNING_MASTER", event: "master_draft_submitted" },
   answer_master_grill: { from: "ALIGNING_MASTER", to: "ALIGNING_MASTER", event: "master_grill_answered" },
   lock_master: { from: "ALIGNING_MASTER", to: "MASTER_LOCKED", event: "master_locked" },
+  submit_requirement_details: { from: "REQUIREMENTS_READY", to: "REQUIREMENTS_READY", event: "requirements_detailed" },
   update_production_units: { from: "PRODUCING", to: "PRODUCING", event: "production_units_updated" },
   lock_production: { from: "PRODUCING", to: "PRODUCTION_LOCKED", event: "production_locked" },
   submit_release_package: { from: "PACKAGING", to: "PACKAGING", event: "release_package_submitted" },
@@ -84,6 +88,8 @@ const COMMIT_TRANSITIONS = {
 >;
 
 export type CommitKind = keyof typeof COMMIT_TRANSITIONS
+  | "reply_annotations"
+  | "request_text_revision"
   | "save_note"
   | "confirm_workspace"
   | "submit_workspace_progress_audit"
@@ -129,6 +135,10 @@ export class WorkflowService {
   ) {}
 
   async create(input: CreateWorkflowInput): Promise<WorkflowSnapshot> {
+    return this.store.exclusive(() => this.createUnlocked(input));
+  }
+
+  private async createUnlocked(input: CreateWorkflowInput): Promise<WorkflowSnapshot> {
     const data = await this.store.read();
     const existing = findIdempotentSnapshot(data, input.idempotencyKey);
     if (existing) {
@@ -177,17 +187,19 @@ export class WorkflowService {
     appendEvent(record, "workflow_created", this.workspace
       ? "Workflow created; workspace guide is ready and must be confirmed before content work."
       : "Workflow created; run the matching step next.");
-    await this.syncWorkspace(record);
-    const snapshot = await this.toSnapshot(record);
-    record.idempotency[input.idempotencyKey] = snapshot;
     data.workflows[id] = record;
-    await this.store.write(data);
-    return snapshot;
+    return this.persistAndProject(data, record, input.idempotencyKey);
   }
 
   async get(workflowId: string): Promise<WorkflowSnapshot> {
     const data = await this.store.read();
-    return this.toSnapshot(requireWorkflow(data.workflows[workflowId], workflowId));
+    const record = requireWorkflow(data.workflows[workflowId], workflowId);
+    if (!record.context.projectionPending) return this.toSnapshot(record);
+    return this.store.exclusive(async () => {
+      const latest = await this.store.read();
+      const current = requireWorkflow(latest.workflows[workflowId], workflowId);
+      return this.persistAndProject(latest, current);
+    });
   }
 
   async list(): Promise<WorkflowSnapshot[]> {
@@ -236,6 +248,10 @@ export class WorkflowService {
   }
 
   async run(input: RunWorkflowInput): Promise<WorkflowSnapshot> {
+    return this.store.exclusive(() => this.runUnlocked(input));
+  }
+
+  private async runUnlocked(input: RunWorkflowInput): Promise<WorkflowSnapshot> {
     const data = await this.store.read();
     const record = requireWorkflow(data.workflows[input.workflowId], input.workflowId);
     const repeated = record.idempotency[input.idempotencyKey];
@@ -291,7 +307,7 @@ export class WorkflowService {
         },
         parentArtifactIds: artifactIdsFor(record.context),
       });
-      let nextContext = withArtifact(record.context, artifact, { requirementSetArtifactId: artifact.artifactId });
+      let nextContext = withArtifact(record.context, artifact, { requirementSetArtifactId: artifact.artifactId, requirementsExecutionReview: null });
       if (record.carrier === "video") {
         const contentMaster = await this.contentMasterFor(record.context);
         if (contentMaster.master.carrier !== "video") throw new Error("Video requirements require a locked video master.");
@@ -304,9 +320,11 @@ export class WorkflowService {
           preproductionMaterialPlanArtifactId: materialPlan.artifactId,
         });
       }
-      record.context = nextContext;
-      record.summary = "已从主稿生成前期素材执行包和视频字幕计划。";
+      record.context = { ...nextContext, agentWork: requirementDetailsBrief(requirements, artifact.artifactId, record.carrier) };
+      record.summary = "已从主稿生成素材需求；等待细化制作步骤与各使用位成品要求。";
     } else if (record.state === "REQUIREMENTS_READY") {
+      const readyRequirements = await this.requirementSetFor(record.context);
+      if (readyRequirements.requirements.some(r => !r.productionProcedure?.trim()) || !isRecord(record.context.requirementsExecutionReview) || record.context.requirementsExecutionReview.artifactId !== record.context.requirementSetArtifactId) throw new Error("Detail every productionProcedure and submit an execution review before requesting human review.");
       const plan = await this.createProductionPlan(record);
       const usesVectCut = record.carrier === "video" && videoBackendFor(record.context) === "vectcut";
       const artifact = await this.artifacts.write({
@@ -317,7 +335,7 @@ export class WorkflowService {
       const control = getProductionControl(plan.units);
       const agentWork = createAgentWorkCapsule({
         stage: "production",
-        inputs: { requirements: plan, carrier: record.carrier, ...(usesVectCut ? { videoBackend: "vectcut" } : {}) },
+        inputs: { requirements: plan, requirementSet: readyRequirements, carrier: record.carrier, ...(usesVectCut ? { videoBackend: "vectcut" } : {}) },
         constraints: [
           "Use only human, generative, or local production routes.",
           "Reuse accepted source assets rather than creating duplicate production units.",
@@ -450,14 +468,14 @@ export class WorkflowService {
     if (record.state === "AWAITING_HUMAN_REVIEW") {
       appendEvent(record, "human_review_requested", "已生成并投影当前人工审核包；等待结构化人工决定。");
     }
-    await this.syncWorkspace(record);
-    const snapshot = await this.toSnapshot(record);
-    record.idempotency[input.idempotencyKey] = snapshot;
-    await this.store.write(data);
-    return snapshot;
+    return this.persistAndProject(data, record, input.idempotencyKey);
   }
 
   async commit(input: CommitWorkflowInput): Promise<WorkflowSnapshot> {
+    return this.store.exclusive(() => this.commitUnlocked(input));
+  }
+
+  private async commitUnlocked(input: CommitWorkflowInput): Promise<WorkflowSnapshot> {
     const data = await this.store.read();
     const record = requireWorkflow(data.workflows[input.workflowId], input.workflowId);
     const repeated = record.idempotency[input.idempotencyKey];
@@ -465,6 +483,8 @@ export class WorkflowService {
       return repeated;
     }
     assertRevision(record, input.expectedRevision);
+
+    const priorArtifacts = new Set(artifactIdsFor(record.context));
 
     const workspaceScope = this.workspaceScopeForRecord(record);
     if (workspaceScope) {
@@ -476,7 +496,31 @@ export class WorkflowService {
       throw new Error(`Workspace preflight requires ${workspaceCommitKind(workspaceBlock.id)} before ${input.kind}. ${workspaceBlock.instruction}`);
     }
 
-    if (input.kind === "confirm_workspace") {
+    if (input.kind === "request_text_revision") {
+      if (record.state === "REJECTED") throw new Error("Rejected workflows cannot be reopened by a text annotation.");
+      if (!Array.isArray(input.context.annotations) || !input.context.annotations.length) throw new Error("request_text_revision requires exact annotations[{id,revision}].");
+      const nodes: number[] = [];
+      for (const item of input.context.annotations) {
+        if (!isRecord(item)) throw new Error("Invalid annotation reference.");
+        const annotation = latestAnnotations(feedbackFor(record.textFeedback)).find(a => a.id === item.id && a.revision === item.revision && !a.withdrawn);
+        if (!annotation) throw new Error("Revision request refers to stale or withdrawn feedback.");
+        const artifact = await this.artifacts.read(annotation.artifactId);
+        const node = ({ baseline: 2, creative_outline: 3, outline_script: 3, content_master: 4, spoken_script: 4, recording_execution: 4, requirement_set: 5, release_package: 7 } as Record<string, number>)[textFamily(artifact.kind)];
+        if (!node) throw new Error("Unsupported text revision target.");
+        nodes.push(node);
+      }
+      const returnToNode = Math.min(...nodes);
+      const reason = requireText(input.context.revisionReason, "revisionReason (scoped interpretation of user feedback)");
+      const decision = await this.artifacts.write({ kind: "decision_ledger", content: { kind: "text_feedback_revision", annotations: input.context.annotations, returnToNode, reason, at: new Date().toISOString() }, parentArtifactIds: artifactIdsFor(record.context), revision: record.revision + 1 });
+      record.context = withArtifact(record.context, decision, { latestDecisionLedgerArtifactId: decision.artifactId });
+      await this.returnToTextNode(record, returnToNode);
+      record.revision += 1; record.updatedAt = new Date().toISOString(); record.summary = input.summary;
+      appendEvent(record, "human_revision_requested", input.summary);
+    } else if (input.kind === "reply_annotations") {
+      if (!Array.isArray(input.context.annotationReceipts) || !input.context.annotationReceipts.length) throw new Error("reply_annotations requires annotationReceipts.");
+      // Replies alone do not invalidate a frozen content review packet.
+      appendEvent(record, "annotation_replied", input.summary);
+    } else if (input.kind === "confirm_workspace") {
       if (!workspaceScope) throw new Error("confirm_workspace requires an enabled project workspace.");
       if (record.state !== "READY") throw new Error("confirm_workspace is only valid before the first content node runs.");
       if (workspaceScope.setupConfirmed) throw new Error("This project workspace is already confirmed.");
@@ -599,6 +643,7 @@ export class WorkflowService {
       record.updatedAt = new Date().toISOString();
       appendEvent(record, "workspace_grill_answered", input.summary);
     } else if (input.kind === "save_note") {
+      if (Object.keys(input.context).some(key => /artifact|review|decision|workspace|requirementsExecution/i.test(key))) throw new Error("save_note cannot replace workflow-owned references or review records; use the corresponding typed commit.");
       record.context = { ...record.context, ...input.context };
       record.summary = input.summary;
       record.revision += 1;
@@ -647,22 +692,7 @@ export class WorkflowService {
         appendEvent(record, "human_review_rejected", input.summary);
       } else {
         const returnToNode = readReviewReturnNode(input.context.returnToNode);
-        const priorArtifactIds = artifactIdsFor(record.context);
-        record.context = { ...record.context, supersededArtifactIds: priorArtifactIds, humanReviewReturnToNode: returnToNode };
-        if (returnToNode === 2) {
-          record.state = "ALIGNING_BASELINE";
-          record.context = { ...record.context, agentWork: withCompetitionPlan(await this.createBaselineBrief(record.context, record.carrier), record.context, "baseline") };
-        } else if (returnToNode === 3) {
-          record.state = "ALIGNING_OUTLINE";
-          record.context = { ...record.context, agentWork: withCompetitionPlan(await this.createCreativeRouteBrief(record), record.context, "outline") };
-        } else if (returnToNode === 4) {
-          record.state = "ALIGNING_MASTER";
-          record.context = { ...record.context, agentWork: withCompetitionPlan(await this.createMasterDevelopmentBrief(record), record.context, "master") };
-        } else {
-          record.state = "MASTER_LOCKED";
-          delete record.context.requirementSetArtifactId;
-          delete record.context.preproductionMaterialPlanArtifactId;
-        }
+        await this.returnToTextNode(record, returnToNode);
         record.summary = input.summary;
         record.revision += 1;
         record.updatedAt = new Date().toISOString();
@@ -793,6 +823,14 @@ export class WorkflowService {
       } else if (input.kind === "submit_outline_draft") {
         const budget = await this.budgetFor(record.context, record.carrier);
         const draft = readCreativeOutlineDraft(input.context.outlineDraft, budget);
+        if (draft.outline.carrier === "article") {
+          const baseline = await this.baselineFor(record.context);
+          const intended = baseline.articleEditorialIntent?.proseLooseness;
+          if (intended !== undefined) {
+            if (draft.outline.editorialIntent.proseLooseness !== undefined && draft.outline.editorialIntent.proseLooseness !== intended) throw new Error("Outline proseLooseness conflicts with the current baseline. Revise the editorial contract first.");
+            draft.outline.editorialIntent = { ...draft.outline.editorialIntent, proseLooseness: intended };
+          }
+        }
         const selectedRoute = await this.selectedCreativeRouteFor(record.context);
         if (draft.selectedRouteId !== selectedRoute.id) throw new Error("Outline draft must use the user-selected creative route.");
         assertDecisionsIncorporated(draft.incorporatesDecisionIds, unresolvedDecisionIds(record.context));
@@ -853,13 +891,35 @@ export class WorkflowService {
         delete record.context.outlineDraftArtifactId;
         delete record.context.outlineGrillCount;
         delete record.context.unresolvedDecisionIds;
+      } else if (input.kind === "submit_requirement_details") {
+        if (input.context.baseArtifactId !== record.context.requirementSetArtifactId) throw new Error("Requirement details reference a stale baseArtifactId.");
+        const current = await this.requirementSetFor(record.context);
+        if (!Array.isArray(input.context.details)) throw new Error("details must be an array of requirementId and productionProcedure.");
+        const details = new Map<string, string>();
+        for (const item of input.context.details) {
+          if (!isRecord(item)) throw new Error("Invalid requirement detail.");
+          const id = requireText(item.requirementId, "requirementId");
+          if (details.has(id) || !current.requirements.some(r => r.requirementId === id)) throw new Error("Duplicate or unknown requirementId.");
+          if (typeof item.productionProcedure !== "string") throw new Error("productionProcedure must be Markdown text.");
+          details.set(id, item.productionProcedure);
+        }
+        const requirements = current.requirements.map(r => details.has(r.requirementId) ? { ...r, productionProcedure: details.get(r.requirementId)! } : r);
+        const executionReview = input.context.executionReview;
+        if (executionReview !== undefined) {
+          if (!isRecord(executionReview) || executionReview.passed !== true) throw new Error("executionReview must explicitly pass, or omit it to save an incomplete draft.");
+          requireText(executionReview.evidence, "executionReview.evidence");
+          if (requirements.some(r => !r.productionProcedure?.trim() || r.usages.some(u => !r.productionProcedure!.includes(u.usageId)))) throw new Error("Reviewed productionProcedure must cover every usageId.");
+        }
+        const artifact = await this.artifacts.write({ kind: "requirement_set", content: { ...current, requirements }, parentArtifactIds: artifactIdsFor(record.context), revision: record.revision + 1 });
+        record.context = withArtifact(record.context, artifact, { requirementSetArtifactId: artifact.artifactId, requirementsExecutionReview: executionReview ? { ...executionReview as Record<string, unknown>, artifactId: artifact.artifactId } : null });
+        record.context.agentWork = requirementDetailsBrief({ ...current, requirements }, artifact.artifactId, record.carrier);
       } else if (input.kind === "submit_master_draft") {
         const creativeOutline = await this.creativeOutlineFor(record.context);
         const master = readMasterDraft(input.context.masterDraft);
         const validation = validateMasterDraft(master, { budget: creativeOutline.budget });
         if (!validation.passed) throw new Error(`Master draft is invalid: ${validation.errors.join(" ")}`);
         const review = readMasterReview(input.context.masterReview, master.carrier);
-        if (!review.passed) throw new Error("submit_master_draft requires a passed context.masterReview.");
+        validateEditorialAudit(review, master, await this.currentRequirementsFor(record.context));
         assertDecisionsIncorporated(readStringArrayOrEmpty(input.context.incorporatesDecisionIds, "incorporatesDecisionIds"), unresolvedDecisionIds(record.context));
         const pendingQuestion = optionalScenarioQuestion(input.context.masterGrillQuestion, "masterGrillQuestion");
         const reviewArtifact = await this.artifacts.write({
@@ -900,6 +960,12 @@ export class WorkflowService {
         const draft = await this.masterDraftFor(record.context);
         if (draft.pendingQuestion) throw new Error("Answer the pending master scenario Grill question and submit a revised master before lock.");
         const creativeOutline = await this.creativeOutlineFor(record.context);
+        validateEditorialAudit(draft.review, draft.master, await this.currentRequirementsFor(record.context));
+        if (!draft.review.audit) throw new Error("Review this draft with current version evidence before locking.");
+        if (!draft.review.passed) {
+          requireText(input.context.editorialAcceptanceNote, "editorialAcceptanceNote (explicit user acceptance of remaining editorial issues)");
+          if (draft.review.evidenceBlockers.length) throw new Error("Factual blockers cannot be waived by editorial acceptance.");
+        }
         const artifact = await this.artifacts.write({
           kind: "content_master",
           content: {
@@ -907,6 +973,7 @@ export class WorkflowService {
             budget: creativeOutline.budget,
             master: draft.master,
             review: draft.review,
+            editorialAcceptanceNote: input.context.editorialAcceptanceNote ?? null,
             confirmedAt: new Date().toISOString(),
           },
           parentArtifactIds: artifactIdsFor(record.context),
@@ -1014,11 +1081,76 @@ export class WorkflowService {
       appendEvent(record, transition.event, input.summary);
     }
 
-    await this.syncWorkspace(record);
-    const snapshot = await this.toSnapshot(record);
-    record.idempotency[input.idempotencyKey] = snapshot;
-    await this.store.write(data);
-    return snapshot;
+    const newArtifacts = await Promise.all(artifactIdsFor(record.context).filter(id => !priorArtifacts.has(id)).map(id => this.artifacts.read(id)));
+    const feedback = feedbackFor(record.textFeedback);
+    const originalIds = Array.isArray(input.context.annotationReceipts) ? [...new Set(feedback.annotations.filter(a => (input.context.annotationReceipts as unknown[]).some(r => isRecord(r) && r.annotationId === a.id)).map(a => a.artifactId))] : [];
+    const originals = await Promise.all(originalIds.map(id => this.artifacts.read(id)));
+    const receipts = readReceipts(input.context.annotationReceipts, feedback, newArtifacts, originals);
+    if (receipts.length) record.textFeedback = { ...feedback, receipts: [...feedback.receipts, ...receipts] };
+    return this.persistAndProject(data, record, input.idempotencyKey);
+  }
+
+  async saveAnnotation(workflowId: string, input: Record<string, unknown>) {
+    return this.store.exclusive(async () => {
+      const data = await this.store.read();
+      const record = requireWorkflow(data.workflows[workflowId], workflowId);
+      const key = requireText(input.idempotencyKey, "idempotencyKey");
+      const requestHash = contentHash(input);
+      const prior = record.feedbackIdempotency?.[key];
+      if (prior) {
+        if (prior !== requestHash) throw new Error("Annotation idempotency key reused with different input.");
+        return feedbackSnapshot(feedbackFor(record.textFeedback));
+      }
+      const artifactId = requireText(input.artifactId, "artifactId");
+      if (!artifactIdsFor(record.context).includes(artifactId)) throw new Error("Artifact does not belong to this workflow.");
+      const feedback = feedbackFor(record.textFeedback);
+      const previous = input.annotationId ? latestAnnotations(feedback).find(a => a.id === input.annotationId) : undefined;
+      if (input.annotationId && !previous) throw new Error("Unknown annotation.");
+      const annotation = validateAnnotation(input, await this.artifacts.read(artifactId), previous);
+      record.textFeedback = { ...feedback, annotations: [...feedback.annotations, annotation] };
+      record.feedbackIdempotency = { ...record.feedbackIdempotency, [key]: requestHash };
+      record.updatedAt = new Date().toISOString();
+      appendEvent(record, "annotation_saved", `${annotation.withdrawn ? "撤回" : previous ? "修订" : "新增"}文字批注：${annotation.body.slice(0, 100)}`);
+      await this.store.write(data);
+      return feedbackSnapshot(record.textFeedback);
+    });
+  }
+
+  async textReview(workflowId: string) {
+    const data = await this.store.read();
+    const record = requireWorkflow(data.workflows[workflowId], workflowId);
+    const artifacts = await Promise.all(artifactRefsFor(record.context).filter(a => isTextArtifact(a.kind)).map(a => this.artifacts.read(a.artifactId)));
+    const feedback = feedbackSnapshot(feedbackFor(record.textFeedback));
+    const items = feedback.items.map(annotation => {
+      const original = artifacts.find(a => a.artifactId === annotation.artifactId);
+      const latest = original ? artifacts.filter(a => textFamily(a.kind) === textFamily(original.kind)).at(-1) : undefined;
+      if (!latest || latest.artifactId === annotation.artifactId) return { ...annotation, mappedTo: null };
+      const fields = new Map(textFields(latest.content).map(f => [f.field, f.text]));
+      const anchors = annotation.anchors.map(a => { const position = locateAnchor(a, fields.get(a.field) ?? ""); return position ? { ...a, ...position } : null; });
+      return { ...annotation, mappedTo: anchors.every(a => a !== null) ? { artifactId: latest.artifactId, anchors } : null };
+    });
+    return { workflowId, revision: record.revision, feedback: { ...feedback, items }, history: feedbackFor(record.textFeedback), artifacts: artifacts.map(a => ({ ...a, family: textFamily(a.kind), fields: textFields(a.content) })) };
+  }
+
+  private async returnToTextNode(record: WorkflowRecord, node: number) {
+    record.context = { ...record.context, supersededArtifactIds: artifactIdsFor(record.context), humanReviewReturnToNode: node };
+    if (node === 2) {
+      record.state = "ALIGNING_BASELINE";
+      record.context.agentWork = withCompetitionPlan(await this.createBaselineBrief(record.context, record.carrier), record.context, "baseline");
+    } else if (node === 3) {
+      record.state = "ALIGNING_OUTLINE";
+      record.context.agentWork = withCompetitionPlan(await this.createCreativeRouteBrief(record), record.context, "outline");
+    } else if (node === 4) {
+      record.state = "ALIGNING_MASTER";
+      record.context.agentWork = withCompetitionPlan(await this.createMasterDevelopmentBrief(record), record.context, "master");
+    } else if (node === 5) {
+      record.state = "REQUIREMENTS_READY";
+      record.context.requirementsExecutionReview = null;
+      record.context.agentWork = requirementDetailsBrief(await this.requirementSetFor(record.context), requireText(record.context.requirementSetArtifactId, "requirementSetArtifactId"), record.carrier);
+    } else if (node === 7) {
+      record.state = "PACKAGING";
+      record.context.agentWork = createReleasePackagingBrief({ production: await this.productionFor(record.context), evidenceSources: readReleaseEvidenceSources(record.context.releaseEvidenceSources), platformContext: record.context.platformContext });
+    } else throw new Error("Unsupported text revision node.");
   }
 
   private async contextForMatching(context: Record<string, unknown>): Promise<Record<string, unknown>> {
@@ -1143,6 +1275,7 @@ export class WorkflowService {
       creativeOutline,
       selectedMaterials: readStringArray(record.context.selectedMaterials, "selectedMaterials"),
       productContext: record.context.productProfile,
+      currentRequirements: await this.currentRequirementsFor(record.context),
     });
   }
 
@@ -1380,6 +1513,7 @@ export class WorkflowService {
       workflowId: record.id,
       carrier: record.carrier,
       displayName: workflowDisplayName(record.displayName, record.summary),
+      ...(typeof record.context.projectionPending === "string" ? { projectionPending: record.context.projectionPending } : {}),
       rootDirectory: resolveWorkflowRoot(record.rootDirectory ?? record.context.rootDirectory),
       state: record.state,
       revision: record.revision,
@@ -1396,6 +1530,8 @@ export class WorkflowService {
       deliverables: workspaceDeliverablesFor(record.context),
       status: statusFor(record.state, Boolean(workspacePendingAction(record))),
       artifactRefs: artifactRefsFor(record.context),
+      reviewFeedback: feedbackSnapshot(feedbackFor(record.textFeedback)),
+      ...(typeof record.context.creativeOutlineArtifactId === "string" ? { editorialContext: await this.editorialContextFor(record.context) } : {}),
       pendingAction: pendingActionForRecord(record),
     };
   }
@@ -1415,6 +1551,29 @@ export class WorkflowService {
       workspaceScope: scope,
     });
     record.context = { ...record.context, workspaceScope: scope, workspaceDeliverables: deliverables };
+  }
+
+  /** Durable commit precedes its read-only workspace projection; retry does not duplicate the mutation. */
+  private async persistAndProject(data: WorkflowStoreData, record: WorkflowRecord, key?: string): Promise<WorkflowSnapshot> {
+    if (this.workspace) record.context.projectionPending = "制品已保存，工作台投影正在同步。";
+    let snapshot = await this.toSnapshot(record);
+    if (key) record.idempotency[key] = snapshot;
+    await this.store.write(data);
+    try { await this.syncWorkspace(record); delete record.context.projectionPending; }
+    catch (error) { record.context.projectionPending = `制品已保存但工作台尚未同步：${error instanceof Error ? error.message : String(error)}。再次 promo_get 重试同步。`; }
+    snapshot = await this.toSnapshot(record);
+    for (const [id, saved] of Object.entries(record.idempotency)) if ((id === key || saved.projectionPending) && saved.revision === record.revision) record.idempotency[id] = snapshot;
+    await this.store.write(data);
+    return snapshot;
+  }
+
+  private async editorialContextFor(context: Record<string, unknown>) {
+    const requirements = await this.currentRequirementsFor(context);
+    return { requirements, requirementsHash: contentHash(requirements), hashAlgorithm: "SHA-256 of recursively key-sorted JSON; exported service contentHash", instruction: "Use these current requirements. New masterReview.audit must bind requirementsHash and contentHash(parsed master). Do not copy old verification to a changed draft." };
+  }
+
+  private async currentRequirementsFor(context: Record<string, unknown>) {
+    return { baseline: await this.baselineFor(context), creativeOutline: await this.creativeOutlineFor(context) };
   }
 
   private workspaceScopeForRecord(record: WorkflowRecord): WorkspaceScope | undefined {
@@ -1488,7 +1647,7 @@ function pendingActionFor(state: WorkflowState): PendingAction | null {
     case "OUTLINE_LOCKED":
       return action("begin_master", "run", "生成完整主稿/分镜扩写任务。");
     case "ALIGNING_MASTER":
-      return action("submit_master_draft", "agent_work", "按 agentWork 提交完整 master 与通过的 review；必要时可逐次 answer_master_grill，确认后 lock_master。");
+      return action("submit_master_draft", "agent_work", "提交完整 master 和真实 review；未验证或有问题可 passed=false 保存审阅。通过须有当前版本 audit，不能用修改自述代替证据。");
     case "MASTER_LOCKED":
       return action("compile_requirements", "run", "Compile material requirements.");
     case "REQUIREMENTS_READY":
@@ -1848,9 +2007,14 @@ function sanitizeImportedContext(context: Record<string, unknown>): Record<strin
   return safe;
 }
 
+function requirementDetailsBrief(requirements: CompiledRequirementSet, baseArtifactId: string, carrier: WorkflowCarrier): AgentWorkCapsule {
+  return createAgentWorkCapsule({ stage: "production", inputs: { requirements, baseArtifactId }, constraints: ["Only detail existing requirement IDs; preserve captureProtocol and every usageId.", "Write preparation, concrete actions and visible results, output specifications for each usageId, acceptance and failure handling."], requestedOutput: { description: "Executable material procedures", fields: ["baseArtifactId", "details[{requirementId,productionProcedure}]", "executionReview{passed,evidence} (omit to save an incomplete draft)"] }, validationRules: ["Submit through submit_requirement_details; passing execution review is not human approval."], nextCommitKind: "submit_requirement_details", guidance: createGuidanceRequest(carrier === "article" ? ["product-tweet-visual-proof"] : ["promo-storyboard-supervision"]) });
+}
+
 function pendingActionForRecord(record: WorkflowRecord): PendingAction | null {
   const workspaceAction = workspacePendingAction(record);
   if (workspaceAction) return workspaceAction;
+  if (record.state === "REQUIREMENTS_READY" && !record.context.requirementsExecutionReview) return action("submit_requirement_details", "agent_work", "细化正式 requirement_set：context.baseArtifactId + details[{requirementId,productionProcedure}]。Markdown 包含准备、步骤、每个 usageId 成品要求、验收、失败处理。可先存草稿；完成后提交 executionReview:{passed:true,evidence}，再请求人工审核。");
   if (record.state === "PRODUCING" && record.carrier === "article" && record.context.articleProductionArtifacts) {
     return action("review_article_preview", "commit", "审阅完整本地文章预览；确认后以 lock_production 提交 previewAccepted: true。任何硬约束或语义漂移需一并回填。");
   }
@@ -1968,7 +2132,7 @@ function statusFor(state: WorkflowState, workspaceBlocked = false): WorkflowSnap
     ALIGNING_MASTER: { node: 4, label: "主稿", userFacingState: "扩写与审校中" },
     MASTER_LOCKED: { node: 5, label: "素材需求", userFacingState: "准备编译" },
     COMPILING_REQUIREMENTS: { node: 5, label: "素材需求", userFacingState: "编译中" },
-    REQUIREMENTS_READY: { node: 6, label: "制作", userFacingState: "准备制作" },
+    REQUIREMENTS_READY: { node: 5, label: "素材需求", userFacingState: "细化并审阅制作流程" },
     AWAITING_HUMAN_REVIEW: { node: 5, label: "人工审核", userFacingState: "等待前序交付审核" },
     REJECTED: { node: 5, label: "人工审核", userFacingState: "当前方案已拒绝" },
     PRODUCING: { node: 6, label: "制作", userFacingState: "制作与审核中" },
@@ -2494,6 +2658,7 @@ function readMasterReview(value: unknown, carrier: "video" | "article"): MasterR
   }
   return {
     passed: value.passed === true,
+    ...(value.audit === undefined ? {} : { audit: readAudit(value.audit)! }),
     evidenceBlockers: readStringArrayOrEmpty(value.evidenceBlockers, "masterReview.evidenceBlockers"),
     writingStyle: {
       skill: "geek-product-promo-writing",
@@ -2604,6 +2769,7 @@ function toMasterAssetUsages(master: ContentMaster): MasterAssetUsage[] {
       usageId: usage.id,
       sourceAssetId: usage.sourceAssetId,
       materialType: source.productionIntent,
+      captureProtocol: source.captureProtocol,
       purpose: usage.purpose,
       ...(usage.fragmentId === null ? {} : { fragmentId: usage.fragmentId }),
       constraints: [...source.constraints],

@@ -30,6 +30,9 @@ const commitKinds = [
   "answer_outline_grill",
   "lock_outline",
   "submit_master_draft",
+  "submit_requirement_details",
+  "reply_annotations",
+  "request_text_revision",
   "answer_master_grill",
   "lock_master",
   "update_production_units",
@@ -73,11 +76,18 @@ export function createPromoServer(service: WorkflowService, runtime: PromoRuntim
     version: "0.1.0",
   });
 
+  server.registerTool("promo_text_review", {
+    title: "读取文字批注和版本原文",
+    description: "读取本流程完整文字版本、自由选区批注及逐条处理回执。配合 promo_get.reviewFeedback；读取不关闭批注。",
+    inputSchema: { workflowId: z.string().min(1) },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  }, async ({ workflowId }) => { try { return response(await service.textReview(workflowId)); } catch(error) { return errorResponse(error); } });
+
   server.registerTool(
     "promo_get",
     {
       title: "查看宣传工作流与工作台",
-      description: "读取工作流及其当前节点，并返回由 MCP 自动启动的只读工作台链接。Agent 应主动向用户展示或打开该链接。",
+      description: "读取工作流、当前有效要求和 reviewFeedback 待处理文字批注。每轮先处理批注（用户明确暂停修改除外），再执行节点动作；返回工作台链接。",
       inputSchema: {
         workflowId: z.string().min(1).optional(),
       },
@@ -110,7 +120,7 @@ export function createPromoServer(service: WorkflowService, runtime: PromoRuntim
     "promo_review",
     {
       title: "打开宣传工作流工作台",
-      description: "返回由 MCP 自动启动的工作台直达地址。它实时监控七节点、制品、待办、版本和人工审核点；只读，不绕过任何门禁。",
+      description: "返回工作台直达地址，展示七节点、制品、待办、文字批注和版本历史；正文只读，批注不替代人工门禁。",
       inputSchema: {
         workflowId: z.string().min(1).optional(),
       },

@@ -16,6 +16,7 @@ import type {
 import { createAgentWorkCapsule, createGuidanceRequest, type AgentWorkCapsule } from "./agent-work.js";
 
 export interface CreateMasterDevelopmentBriefInput {
+  currentRequirements?: unknown;
   creativeOutline: LockedCreativeOutline;
   selectedMaterials: readonly string[];
   productContext: unknown;
@@ -43,6 +44,7 @@ export function createMasterDevelopmentBrief(input: CreateMasterDevelopmentBrief
       creativeOutline: input.creativeOutline,
       selectedMaterials: input.selectedMaterials,
       productContext: input.productContext,
+      ...(input.currentRequirements ? { currentRequirements: input.currentRequirements } : {}),
     },
     constraints: [
       "Expand the locked creative outline without changing its proposition, evidence boundary, or ending intent.",

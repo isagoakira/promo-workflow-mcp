@@ -1,4 +1,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { randomUUID } from "node:crypto";
+import { ArtifactStore, JsonWorkflowStore, WorkflowService, WorkspaceDeliverables } from "@promo-workflow/service";
+import { TEXT_REVIEW_JS } from "./text-review-client.js";
 import { readFile } from "node:fs/promises";
 import { watch, type FSWatcher } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
@@ -60,6 +63,9 @@ const STEPS = [
  */
 export function createReviewHost(options: ReviewHostOptions): Server {
   const dataDirectory = resolve(options.dataDirectory);
+  const artifacts = new ArtifactStore(join(dataDirectory, "artifacts"));
+  const service = new WorkflowService(new JsonWorkflowStore(join(dataDirectory, "workflows.json")), artifacts, undefined, undefined, undefined, new WorkspaceDeliverables(join(dataDirectory, "workspace"), artifacts));
+  const writeToken = randomUUID();
   const subscribers = new Set<ServerResponse>();
   let notifyTimer: NodeJS.Timeout | undefined;
   const notify = (): void => {
@@ -81,6 +87,24 @@ export function createReviewHost(options: ReviewHostOptions): Server {
   const server = createServer(async (request, response) => {
     try {
       const url = new URL(request.url ?? "/", "http://127.0.0.1");
+      if (url.pathname === "/text-review.js") return sendText(response, TEXT_REVIEW_JS, "text/javascript; charset=utf-8");
+      if (url.pathname === "/api/text-session") {
+        if (!/^((127\.0\.0\.1|localhost)(:\d+)?|\[::1\](:\d+)?)$/.test(request.headers.host ?? "")) return sendJson(response, { error: "Local host required." }, 403);
+        return sendJson(response, { token: writeToken });
+      }
+      const textMatch = /^\/api\/workflows\/([A-Za-z0-9_-]+)\/(text|annotations)$/.exec(url.pathname);
+      if (textMatch?.[1]) {
+        if (textMatch[2] === "text" && request.method === "GET") return sendJson(response, await service.textReview(textMatch[1]));
+        if (textMatch[2] !== "annotations" || request.method !== "POST") return sendJson(response, { error: "Method not allowed." }, 405);
+        if (request.headers.origin !== `http://${request.headers.host}` || request.headers["x-promo-token"] !== writeToken || !request.headers["content-type"]?.startsWith("application/json")) return sendJson(response, { error: "Invalid local write session." }, 403);
+        let body = "";
+        for await (const chunk of request) { body += String(chunk); if (Buffer.byteLength(body) > 100000) return sendJson(response, { error: "Annotation too large." }, 413); }
+        const payload = asRecord(JSON.parse(body));
+        if (!payload) return sendJson(response, { error: "Expected annotation object." }, 400);
+        const result = await service.saveAnnotation(textMatch[1], payload);
+        notify();
+        return sendJson(response, result);
+      }
       if (url.pathname === "/api/updates") return subscribe(request, response, subscribers);
       if (url.pathname === "/api/workflows") {
         return sendJson(response, await listWorkflows(dataDirectory));
@@ -164,6 +188,7 @@ async function readWorkflowReview(dataDirectory: string, workflowId: string): Pr
   const steps: ReviewStep[] = STEPS.map((step) => {
     const stepArtifacts = collapseSupersededDrafts(
       artifacts.filter((artifact): artifact is ReviewArtifact => artifact !== null && step.kinds.includes(artifact.kind as never)),
+      (array(asRecord(workflowRecord?.context)?.artifactRefs) ?? []).map(ref => text(asRecord(ref)?.artifactId) ?? ""),
     );
     const visibleArtifacts = step.node === workflow.progress.node && stepArtifacts.length === 0 && agentWork
       ? [agentWork]
@@ -188,7 +213,7 @@ async function readWorkflowReview(dataDirectory: string, workflowId: string): Pr
   };
 }
 
-function collapseSupersededDrafts(artifacts: readonly ReviewArtifact[]): ReviewArtifact[] {
+function collapseSupersededDrafts(artifacts: readonly ReviewArtifact[], order: string[] = []): ReviewArtifact[] {
   const kinds = new Set(artifacts.map((artifact) => artifact.kind));
   const superseded = new Map([
     ["baseline_draft", "baseline"],
@@ -198,7 +223,13 @@ function collapseSupersededDrafts(artifacts: readonly ReviewArtifact[]): ReviewA
   ]);
   return artifacts.filter((artifact) => {
     const lockedKind = superseded.get(artifact.kind);
-    return !lockedKind || !kinds.has(lockedKind);
+    if (lockedKind && kinds.has(lockedKind)) {
+      const locked = artifacts.find(a => a.kind === lockedKind)!;
+      return order.indexOf(artifact.artifactId) > order.indexOf(locked.artifactId);
+    }
+    const draftKind = [...superseded].find(([,locked]) => locked === artifact.kind)?.[0];
+    const draft = artifacts.find(a => a.kind === draftKind);
+    return !draft || order.indexOf(draft.artifactId) <= order.indexOf(artifact.artifactId);
   });
 }
 
@@ -333,12 +364,12 @@ const INDEX_HTML = `<!doctype html>
       </div>
     </header>
     <main id="app" aria-live="polite"><div class="loading">正在铺开审核链路…</div></main>
+    <script src="/text-review.js"></script>
     <script src="/review.js"></script>
   </body>
 </html>`;
 
 const REVIEW_CSS = `
-@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Noto+Serif+SC:wght@400;500;600;700;900&display=swap');
 :root { --paper:#eee9dc; --ink:#17202d; --muted:#69717a; --line:#c9c0ae; --blue:#0e5b73; --rust:#c85432; --yellow:#e9be55; --card:#f8f5eb; --shadow:0 15px 40px rgba(23,32,45,.10); }
 * { box-sizing:border-box; }
 body { margin:0; color:var(--ink); background:var(--paper); font-family:'Noto Serif SC','Songti SC',serif; }
@@ -376,8 +407,8 @@ function keyFields(obj, keys) { return keys.filter(key => obj[key] !== undefined
 function renderValue(value) { if (Array.isArray(value)) return '<ul class="list">'+value.map(item => '<li>'+renderValue(item)+'</li>').join('')+'</ul>'; if (isObj(value)) return '<p>'+esc(value.title || value.name || value.summary || '这项信息已记录在制品中。')+'</p>'; return esc(value); }
 function renderRoutes(routes) { return '<div class="route-grid">'+routes.map(route => '<div class="route"><strong>'+esc(route.name || route.id || '候选路线')+'</strong><span>'+esc(route.centralTension || route.summary || route.whyThisRoute || '')+'</span></div>').join('')+'</div>'; }
 function renderOutline(value) { const outline=value.outline||value; const sections=outline.sections||[]; return '<p class="lead">'+esc(outline.openingDirection||value.creativeSpine?.creativePremise||'')+'</p><h4>文章的推进</h4>'+sections.map((section,index)=>'<div class="route"><strong>第 '+(index+1)+' 段：'+esc(section.sectionPurpose||'')+'</strong>'+keyFields(section,['sceneOrAction','content','readerShift','visualAsset','avoid'])+'</div>').join('')+'<h4>收束与行动</h4>'+keyFields(outline,['ending','primaryCallToAction','unsupportedClaims']); }
-function renderMasterReview(value) { const review=value.review||{}; const groups=[['证据问题',review.evidenceBlockers],['文风与结构',review.writingStyle?.findings],['读者与证据链',review.articleEditorial?.findings],['素材可行性',review.assetEfficiencyFindings]]; return '<p class="lead">'+(review.passed?'审校通过：可以进入人工审核。':'审校发现仍会影响发布判断的问题。')+'</p>'+groups.filter(([,items])=>items?.length).map(([title,items])=>'<h4>'+title+'</h4>'+renderValue(items)).join(''); }
-function renderRequirements(value) { const requirements=value.requirements||[]; return '<p class="lead">需要补齐 '+requirements.length+' 组能够证明正文判断的素材。</p>'+requirements.map((item,index)=>'<div class="route"><strong>素材 '+(index+1)+'</strong>'+keyFields(item,['materialType','constraints'])+'<div class="field"><dt>这些画面要证明什么</dt><dd>'+renderValue((item.usages||[]).map(usage=>usage.purpose).filter(Boolean))+'</dd></div></div>').join(''); }
+function renderMasterReview(value) { const review=value.review||{}; const groups=[['证据问题',review.evidenceBlockers],['文风与结构',review.writingStyle?.findings],['读者与证据链',review.articleEditorial?.findings],['素材可行性',review.assetEfficiencyFindings]]; return '<p class="lead">'+(review.passed?(review.audit?'编辑审计通过；仍需人工决定。':'历史通过记录，未附新版验证依据。'):'未通过或尚未验证；草稿可继续审阅。')+'</p>'+groups.filter(([,items])=>items?.length).map(([title,items])=>'<h4>'+title+'</h4>'+renderValue(items)).join('')+(review.audit?'<h4>版本与复核依据</h4><div class="markdown">'+esc(JSON.stringify(review.audit,null,2))+'</div>':''); }
+function renderRequirements(value) { const requirements=value.requirements||[]; return '<p class="lead">需要补齐 '+requirements.length+' 组能够证明正文判断的素材。</p>'+requirements.map((item,index)=>'<div class="route"><strong>素材 '+(index+1)+'</strong>'+keyFields(item,['materialType','constraints'])+'<div class="field"><dt>这些画面要证明什么</dt><dd>'+renderValue((item.usages||[]).map(usage=>usage.usageId+'：'+usage.purpose).filter(Boolean))+'</dd></div><h4>采集协议</h4><div class="markdown">'+esc(item.captureProtocol?JSON.stringify(item.captureProtocol,null,2):'未提供')+'</div><h4>制作流程</h4><div class="markdown">'+esc(item.productionProcedure||'尚待细化')+'</div></div>').join(''); }
 function renderProduction(value) { const gaps=value.capabilityGaps||[]; const units=value.units||[]; return '<p class="lead">制作将按 '+units.length+' 个单元推进。</p>'+(gaps.length?'<h4>开工前要处理的缺口</h4>'+renderValue(gaps):'<p>当前没有记录额外制作能力缺口。</p>'); }
 function artifactBody(artifact) { const value = artifact.content; if (typeof value === 'string') return '<div class="markdown">'+esc(value.replace(/^# .*$/m,'').trim())+'</div>'; if (!isObj(value)) return '<p>'+renderValue(value)+'</p>'; if (artifact.kind === 'agent_work_brief') return '<p class="lead">'+esc(value.status||'等待正式交付物。')+'</p>'+keyFields(value.requestedOutput||{},['description','fields'])+'<h4>执行边界</h4>'+keyFields(value,['constraints','validationRules','nextCommitKind']); if (artifact.kind === 'baseline' || artifact.kind === 'baseline_draft') { const campaign=value.campaignIntent||{}, editorial=value.articleEditorialIntent||{}; return '<p class="lead">'+esc(value.coreMessage||'')+'</p><h4>引导读者完成什么</h4>'+keyFields(value,['guidanceIntent'])+'<h4>传播判断</h4>'+keyFields(campaign,['audienceMoment','immediateBenefit','longTermBenefit','beliefToChange','proofToShow','evidenceBoundary','primaryCallToAction'])+'<h4>编辑基调</h4>'+keyFields(editorial,['readerDecision','humanCenter','authorStance','warmThread','emotionalArc']); }
  if (artifact.kind === 'creative_routes') return '<p class="lead">从候选中选出一条可证明、可推进的路线。</p>'+renderRoutes(value.routes||[]);
@@ -392,7 +423,7 @@ function artifactBody(artifact) { const value = artifact.content; if (typeof val
  if (artifact.kind === 'requirement_set' || artifact.kind === 'preproduction_material_plan') return renderRequirements(value);
  if (artifact.kind === 'production_plan') return renderProduction(value);
  return '<p>这份制品已纳入流程记录；其中没有会改变本轮审核决定的独立内容。</p>'; }
-function artifact(artifact, open=false) { return '<details class="artifact" '+(open?'open':'')+'><summary><span class="artifact-label">'+esc(titles[artifact.kind]||artifact.kind)+'</span><span class="artifact-hint">查看审稿要点</span></summary><div class="artifact-body">'+artifactBody(artifact)+'</div></details>'; }
+function artifact(artifact, open=false) { const textKinds=['baseline','baseline_draft','creative_outline','creative_outline_draft','content_master','content_master_draft','spoken_script','recording_execution','requirement_set','release_package','release_package_draft','outline_script']; return '<details class="artifact" '+(open?'open':'')+'><summary><span class="artifact-label">'+esc(titles[artifact.kind]||artifact.kind)+'</span><span class="artifact-hint">查看审稿要点</span></summary><div class="artifact-body">'+(textKinds.includes(artifact.kind)?'<button type="button" data-text-artifact="'+esc(artifact.artifactId)+'">文字批注与版本对比</button>':'')+artifactBody(artifact)+'</div></details>'; }
 function reviewState(review) { return review.workflow.progress?.detail || (review.reviewMode ? '等待人工审核' : '流程推进中'); }
 function render(review) { data=review; const workflow=review.workflow; const progress=workflow.progress||{node:1,label:'选题与证据',detail:'等待流程同步',terminal:false}; const headline=workflow.carrier==='article'?'文章审核链路':'视频审核链路'; const rail=review.steps.map(step => '<button class="'+step.state+'" data-scroll="step-'+step.node+'"><b>'+step.node+'</b><span>'+esc(step.label)+'</span></button>').join(''); const timeline=review.steps.map(step => '<section id="step-'+step.node+'" class="step"><div class="step-title"><h2>'+esc(step.label)+'</h2><span class="state '+step.state+'">'+({complete:'已完成',current:'当前进行中',pending:'尚未开始'}[step.state])+'</span></div>'+(step.artifacts.length?step.artifacts.map((item,index)=>artifact(item,index===0)).join(''):'<div class="placeholder">此节点尚未产生可审核制品。</div>')+'</section>').join(''); const eventItems=(review.events||[]).slice().reverse().map(event => '<div class="event"><time>第 '+esc(event.revision)+' 次更新</time><p>'+esc(event.summary||'流程已更新')+'</p></div>').join('') || '<p>暂无事件记录。</p>'; const events='<div id="event-feed" class="event-feed">'+eventItems+'</div>'; app.innerHTML='<div class="page"><section class="hero"><div><div class="eyebrow">纵向审核台 · '+esc(workflow.carrier==='article'?'文章 / 推文':'视频')+'</div><h1>'+headline+'</h1><p class="hero-summary">从一个点子到可执行发布：顺着七个节点检查，这条内容是否值得进入下一步。</p><div class="meta"><span>第 '+esc(progress.node)+' / 7 步 · '+esc(progress.label)+'</span><span>'+esc(reviewState(review))+'</span><span>当前版本 r'+esc(workflow.revision)+'</span></div></div><aside class="review-card"><div class="label">CURRENT PROGRESS</div><p>'+esc(progress.detail)+'</p><small>'+ (review.reviewMode ? '前序链路已冻结，重点判断：主张是否成立、证据是否够用、素材是否真正能证明它。' : '收到新的工作流事件后，页面会自动按节点顺序刷新。') +'</small></aside></section><section class="review-board"><nav class="rail" aria-label="审核节点">'+rail+'</nav><div class="timeline">'+timeline+'</div><aside class="side"><div class="side-card"><h3>决定方式</h3><div class="rule"><strong>保留人工门禁</strong>批准、退回或拒绝必须由 Agent 经 promo_commit 绑定当前 revision 提交。</div></div><div class="side-card"><div class="side-heading"><h3>近期流程</h3><div class="event-controls"><button type="button" data-event-scroll="up" aria-label="向上查看近期流程">↑</button><button type="button" data-event-scroll="down" aria-label="向下查看近期流程">↓</button></div></div>'+events+'</div></aside></section></div>'; document.querySelectorAll('[data-scroll]').forEach(button=>button.addEventListener('click',()=>document.getElementById(button.dataset.scroll)?.scrollIntoView({behavior:'smooth',block:'start'}))); document.querySelectorAll('[data-event-scroll]').forEach(button=>button.addEventListener('click',()=>document.getElementById('event-feed')?.scrollBy({top:button.dataset.eventScroll==='up'?-150:150,behavior:'smooth'}))); }
 async function load(id, silent=false) { if(!silent) app.innerHTML='<div class="loading">正在读取冻结制品…</div>'; try { const response=await fetch('/api/workflows/'+encodeURIComponent(id)); if(!response.ok) throw new Error((await response.json()).error||'读取失败'); render(await response.json()); } catch(error) { if(!silent) app.innerHTML='<div class="error">'+esc(error.message||String(error))+'</div>'; } }
@@ -409,7 +440,7 @@ function renderWorkbenchNavigator() { const visible = workbenchWorkflows.filter(
 function bindWorkbenchNavigator() { document.querySelectorAll('[data-carrier]').forEach(button => button.addEventListener('click', () => { activeCarrier = button.dataset.carrier; const first = workbenchWorkflows.find(item => item.carrier === activeCarrier); if (first) selectWorkflow(first.workflowId); else renderUnified(data); })); document.querySelectorAll('[data-workflow-id]').forEach(button => button.addEventListener('click', () => selectWorkflow(button.dataset.workflowId))); }
 function renderUnified(review) { data = review; const workflow = review.workflow; const progress = workflow.progress || { node:1,label:'选题与证据',detail:'等待流程同步',terminal:false }; const rail = review.steps.map(step => '<button class="'+step.state+'" data-scroll="step-'+step.node+'"><b>'+step.node+'</b><span>'+esc(step.label)+'</span></button>').join(''); const timeline = review.steps.map(step => '<section id="step-'+step.node+'" class="step"><div class="step-title"><h2>'+esc(step.label)+'</h2><span class="state '+step.state+'">'+({complete:'已完成',current:'当前进行中',pending:'尚未开始'}[step.state])+'</span></div>'+(step.artifacts.length ? step.artifacts.map((item,index) => artifact(item,index===0)).join('') : '<div class="placeholder">此节点尚未产生可审核制品。</div>')+'</section>').join(''); const events = (review.events||[]).slice().reverse().map(event => '<div class="event"><time>第 '+esc(event.revision)+' 次更新</time><p>'+esc(event.summary||'流程已更新')+'</p></div>').join('') || '<p>暂无事件记录。</p>'; app.innerHTML='<div class="page">'+renderWorkbenchNavigator()+'<section class="hero"><div><div class="eyebrow">'+esc(carrierLabel(workflow.carrier))+'工作流 · '+esc(workflow.rootDirectory || '未指定根目录')+'</div><h1>'+esc(workflow.displayName || '未命名工作流')+'</h1><p class="hero-summary">'+esc(workflow.summary || '从一个点子到可执行发布，顺着七个节点检查这条内容是否值得进入下一步。')+'</p><div class="meta"><span>第 '+esc(progress.node)+' / 7 步 · '+esc(progress.label)+'</span><span>'+esc(reviewState(review))+'</span><span>当前版本 r'+esc(workflow.revision)+'</span></div></div><aside class="review-card"><div class="label">CURRENT PROGRESS</div><p>'+esc(progress.detail)+'</p><small>'+ (review.reviewMode ? '前序链路已冻结，重点判断：主张是否成立、证据是否够用、素材是否真正能证明它。' : '收到新的工作流事件后，页面会自动按节点顺序刷新。') +'</small></aside></section><section class="review-board"><nav class="rail" aria-label="审核节点">'+rail+'</nav><div class="timeline">'+timeline+'</div><aside class="side"><div class="side-card"><h3>决定方式</h3><div class="rule"><strong>保留人工门禁</strong>批准、退回或拒绝必须由 Agent 经 promo_commit 绑定当前 revision 提交。</div></div><div class="side-card"><div class="side-heading"><h3>近期流程</h3><div class="event-controls"><button type="button" data-event-scroll="up" aria-label="向上查看近期流程">↑</button><button type="button" data-event-scroll="down" aria-label="向下查看近期流程">↓</button></div></div><div id="event-feed" class="event-feed">'+events+'</div></div></aside></section></div>'; document.querySelectorAll('[data-scroll]').forEach(button => button.addEventListener('click', () => document.getElementById(button.dataset.scroll)?.scrollIntoView({behavior:'smooth',block:'start'}))); document.querySelectorAll('[data-event-scroll]').forEach(button => button.addEventListener('click', () => document.getElementById('event-feed')?.scrollBy({top:button.dataset.eventScroll === 'up' ? -150 : 150,behavior:'smooth'}))); bindWorkbenchNavigator(); }
 async function selectWorkflow(id, silent=false) { selectedWorkflowId = id; const item = workbenchWorkflows.find(workflow => workflow.workflowId === id); if (item) activeCarrier = item.carrier; history.replaceState(null,'','?workflowId='+encodeURIComponent(id)); await unifiedLoad(id, silent); }
-async function unifiedLoad(id, silent=false) { if (!silent) app.innerHTML='<div class="loading">正在读取冻结制品…</div>'; try { const response = await fetch('/api/workflows/'+encodeURIComponent(id)); if (!response.ok) throw new Error((await response.json()).error || '读取失败'); renderUnified(await response.json()); } catch (error) { if (!silent) app.innerHTML='<div class="error">'+esc(error.message || String(error))+'</div>'; } }
+async function unifiedLoad(id, silent=false) { if(window.promoTextReviewOpen || (silent && window.getSelection()?.toString())) { window.dispatchEvent(new Event('promo-text-update')); return; } if (!silent) app.innerHTML='<div class="loading">正在读取冻结制品…</div>'; try { const response = await fetch('/api/workflows/'+encodeURIComponent(id)); if (!response.ok) throw new Error((await response.json()).error || '读取失败'); const review=await response.json(); if(window.promoTextReviewOpen || (silent && window.getSelection()?.toString())) return; const scroll=window.scrollY; renderUnified(review); if(silent) window.scrollTo(0,scroll); } catch (error) { if (!silent) app.innerHTML='<div class="error">'+esc(error.message || String(error))+'</div>'; } }
 async function unifiedSync(silent=false) { const response = await fetch('/api/workflows'); workbenchWorkflows = await response.json(); if (!workbenchWorkflows.length) { app.innerHTML='<div class="empty">还没有可展示的工作流。先在 Promo Workflow 创建并同步一条流程。</div>'; return; } const preferred = selectedWorkflowId || new URLSearchParams(location.search).get('workflowId'); const selected = workbenchWorkflows.some(item => item.workflowId === preferred) ? preferred : workbenchWorkflows[0].workflowId; await selectWorkflow(selected, silent); }
 function unifiedLive() { const events = new EventSource('/api/updates'); events.addEventListener('connected',()=>{ live.textContent='实时同步'; live.className='live-indicator live'; }); events.addEventListener('workflow-change',()=>unifiedSync(true)); events.onerror=()=>{ live.textContent='定时同步'; live.className='live-indicator stale'; }; setInterval(()=>{ if(events.readyState!==EventSource.OPEN) unifiedSync(true); },15000); }
 async function unifiedBoot() { try { await unifiedSync(); refresh.addEventListener('click',()=>unifiedSync(true)); unifiedLive(); } catch(error) { app.innerHTML='<div class="error">'+esc(error.message||String(error))+'</div>'; } }

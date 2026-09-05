@@ -51,6 +51,7 @@ export interface CapabilityGap {
 }
 
 export interface ProductionUnitPlan {
+  requirements?: readonly MaterialRequirement[];
   units: readonly ProductionUnit[];
   reusedRequirementIds: readonly string[];
   capabilityGaps: readonly CapabilityGap[];
@@ -105,6 +106,7 @@ export function createProductionUnitPlan(input: CreateProductionUnitsInput): Pro
   assertProductionUnits(units);
   return {
     units: units.sort((left, right) => left.id.localeCompare(right.id)),
+    requirements,
     reusedRequirementIds: reusedRequirementIds.sort(),
     capabilityGaps: capabilityGaps.sort((left, right) => left.requirementId.localeCompare(right.requirementId)),
   };

@@ -1,4 +1,6 @@
 export { JsonWorkflowStore } from "./store.js";
+export { contentHash, validateEditorialAudit } from "./editorial-audit.js";
+export { textFields, locateAnchor, feedbackSnapshot, validateAnnotation } from "./text-feedback.js";
 export { createAgentWorkCapsule } from "./agent-work.js";
 export { createGuidanceRequest } from "./agent-work.js";
 export { GUIDANCE_IDS } from "./agent-work.js";

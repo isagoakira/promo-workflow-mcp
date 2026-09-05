@@ -28,6 +28,9 @@ export type WorkflowEventKind =
   | "master_draft_submitted"
   | "master_grill_answered"
   | "master_locked"
+  | "requirements_detailed"
+  | "annotation_saved"
+  | "annotation_replied"
   | "human_review_requested"
   | "human_review_approved"
   | "human_revision_requested"
@@ -49,6 +52,8 @@ export interface WorkflowEvent {
 }
 
 export interface WorkflowRecord {
+  textFeedback?: import("./text-feedback.js").TextFeedback;
+  feedbackIdempotency?: Record<string, string>;
   id: string;
   carrier: WorkflowCarrier;
   /** Stable agent-written name used in the workbench; progress lives in summary. */
@@ -72,6 +77,9 @@ export interface PendingAction {
 }
 
 export interface WorkflowSnapshot {
+  projectionPending?: string;
+  reviewFeedback?: ReturnType<typeof import("./text-feedback.js").feedbackSnapshot>;
+  editorialContext?: { requirements: unknown; requirementsHash: string; hashAlgorithm: string; instruction: string };
   workflowId: string;
   carrier: WorkflowCarrier;
   displayName: string;

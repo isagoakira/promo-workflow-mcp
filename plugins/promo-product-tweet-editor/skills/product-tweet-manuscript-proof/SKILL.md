@@ -7,6 +7,8 @@ description: 在活动中的 Promo Workflow 文章 N4 节点撰写或实质修�
 
 调用 `promo_guidance` 并加载 `product-tweet-manuscript-proof`。只在已锁定的命题、文章契约、章节职责和事实边界内扩写。
 
+应用指导中的 proseLooseness 映射及版本化 audit 规则，先读 reviewFeedback 中的原文批注与当前要求，再读上次修改报告。全文推进独立于散文化程度检查；局部顺滑不能代替全文结构。允许未通过的完整草稿进入工作台，不以“已优化”的自述宣布通过。一次修改可回应多条批注，但逐条保留回复和验证依据。
+
 按三遍完成：
 
 1. 宏观层先修编辑目光、材料取舍与注意力动线；

@@ -83,12 +83,19 @@ function readArticleEditorialIntent(value: unknown): ArticleEditorialIntent {
   if (!isRecord(value)) throw new Error("baselineProposal.articleEditorialIntent is required.");
   return {
     readerDecision: requiredText(value.readerDecision, "articleEditorialIntent.readerDecision"),
+    ...(value.proseLooseness === undefined ? {} : { proseLooseness: readProseLooseness(value.proseLooseness) }),
     humanCenter: requiredText(value.humanCenter, "articleEditorialIntent.humanCenter"),
     authorStance: requiredText(value.authorStance, "articleEditorialIntent.authorStance"),
     warmThread: requiredText(value.warmThread, "articleEditorialIntent.warmThread"),
     emotionalArc: requiredText(value.emotionalArc, "articleEditorialIntent.emotionalArc"),
     evidencePosture: requiredText(value.evidencePosture, "articleEditorialIntent.evidencePosture"),
   };
+}
+
+function readProseLooseness(value: unknown): number | null {
+  if (value === null) return null;
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0 || value > 100) throw new Error("proseLooseness must be null or an integer from 0 to 100.");
+  return value;
 }
 
 function readCampaignIntent(value: unknown): CampaignIntentCard {

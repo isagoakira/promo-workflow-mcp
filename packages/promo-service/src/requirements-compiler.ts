@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { SourceAssetCaptureProtocol } from "@promo-workflow/contracts";
 
 export type RequirementCarrier = "video" | "article";
 
@@ -8,6 +9,7 @@ export type RequirementCarrier = "video" | "article";
  * not prescribe who or which tool will produce it.
  */
 export interface MasterAssetUsage {
+  captureProtocol?: SourceAssetCaptureProtocol;
   usageId: string;
   sourceAssetId: string;
   materialType: string;
@@ -38,6 +40,8 @@ export interface RequirementUsage {
 
 /** A tool-neutral material request. One requirement may explicitly cover many usages. */
 export interface MaterialRequirement {
+  captureProtocol?: SourceAssetCaptureProtocol;
+  productionProcedure?: string;
   requirementId: string;
   sourceAssetId: string;
   materialType: string;
@@ -201,6 +205,7 @@ function validateInput(input: CompileRequirementsInput): MasterAssetUsage[] {
 function toRequirement(key: string, members: MasterAssetUsage[]): MaterialRequirement {
   const first = members[0];
   if (!first) throw new Error("Cannot compile an empty requirement group.");
+  if (members.some(member => JSON.stringify(member.captureProtocol) !== JSON.stringify(first.captureProtocol))) throw new Error("Conflicting capture protocols for the same requirement.");
   const usages = members
     .map((usage) => ({
       usageId: usage.usageId,
@@ -214,6 +219,7 @@ function toRequirement(key: string, members: MasterAssetUsage[]): MaterialRequir
   return {
     requirementId: `req_${shortHash(key)}`,
     sourceAssetId: first.sourceAssetId,
+    ...(first.captureProtocol ? { captureProtocol: first.captureProtocol } : {}),
     materialType: first.materialType,
     constraints: normalizedConstraints(first.constraints, first.usageId),
     usages,

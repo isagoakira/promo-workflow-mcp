@@ -276,7 +276,9 @@ function readArticleOutline(value: Record<string, unknown>, budget: Extract<Cont
 
 function readArticleEditorialIntent(value: unknown): ArticleEditorialIntent {
   if (!isRecord(value)) throw new Error("outline.editorialIntent is required for article workflows.");
+  if (value.proseLooseness !== undefined && value.proseLooseness !== null && (typeof value.proseLooseness !== "number" || !Number.isInteger(value.proseLooseness) || value.proseLooseness < 0 || value.proseLooseness > 100)) throw new Error("proseLooseness must be null or an integer from 0 to 100.");
   return {
+    ...(value.proseLooseness === undefined ? {} : { proseLooseness: value.proseLooseness as number | null }),
     readerDecision: requiredText(value.readerDecision, "outline.editorialIntent.readerDecision"),
     humanCenter: requiredText(value.humanCenter, "outline.editorialIntent.humanCenter"),
     authorStance: requiredText(value.authorStance, "outline.editorialIntent.authorStance"),

@@ -1,6 +1,6 @@
 {
   "name": "promo-video-article-workflow",
-  "version": "0.1.0+codex.20260903075806",
+  "version": "0.2.0",
   "description": "Required Promo Workflow MCP and driver Skill for managed video or article campaigns.",
   "author": {
     "name": "Local developer"

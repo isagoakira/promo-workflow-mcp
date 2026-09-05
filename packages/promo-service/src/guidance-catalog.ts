@@ -1,4 +1,5 @@
 import type { GuidanceId } from "./agent-work.js";
+import { EDITORIAL_REVIEW_GUIDANCE } from "./editorial-guidance.js";
 import { PROMO_GUIDANCE_DOCUMENTS } from "./guidance-content.js";
 import {
   TIM_CINEMATIC_VIDEO_ARCHITECTURE_GUIDANCE,
@@ -105,5 +106,5 @@ function productTweetGuide(
 }
 
 export function loadGuidance(ids: readonly GuidanceId[]): GuidanceGuide[] {
-  return ids.map((id) => CATALOG[id]);
+  return ids.map((id) => ({ ...CATALOG[id], content: CATALOG[id].content + EDITORIAL_REVIEW_GUIDANCE }));
 }

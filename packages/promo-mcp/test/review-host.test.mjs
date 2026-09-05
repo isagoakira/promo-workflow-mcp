@@ -186,6 +186,13 @@ test("review host hides superseded drafts when the locked deliverable is availab
     assert.ok(address && typeof address !== "string");
     const review = await (await fetch(`http://127.0.0.1:${address.port}/api/workflows/${workflowId}`)).json();
     assert.deepEqual(review.steps[1].artifacts.map((artifact) => artifact.kind), ["baseline"]);
+    const storePath = join(dataDirectory, "workflows.json");
+    await writeFile(storePath, JSON.stringify({ schemaVersion: 1, workflows: { [workflowId]: {
+      id: workflowId, carrier: "article", state: "ALIGNING_BASELINE", revision: 5, summary: "用户要求修订", updatedAt: "2026-09-05T00:01:00.000Z", events: [],
+      context: { artifactRefs: [{artifactId:"artifact-locked"},{artifactId:"artifact-draft"}] },
+    } } }));
+    const revised = await (await fetch(`http://127.0.0.1:${address.port}/api/workflows/${workflowId}`)).json();
+    assert.deepEqual(revised.steps[1].artifacts.map(artifact => artifact.kind), ["baseline_draft"], "a newer draft must not be hidden by an older locked version");
   } finally {
     await new Promise((resolveClose, rejectClose) => server.close((error) => error ? rejectClose(error) : resolveClose()));
   }

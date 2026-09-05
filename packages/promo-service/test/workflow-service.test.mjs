@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { ArtifactStore, JsonWorkflowStore, WorkflowService, WorkspaceDeliverables } from "../dist/index.js";
+import { ArtifactStore, JsonWorkflowStore, WorkflowService, WorkspaceDeliverables, contentHash, readMasterDraft } from "../dist/index.js";
 
 test("workflow advances with optimistic revisions and idempotency", async () => {
   const directory = await mkdtemp(join(tmpdir(), "promo-workflow-"));
@@ -280,7 +280,7 @@ test("video workflow connects outline, master, requirements, production, and rel
   assert.equal(mastering.agentWork.stage, "master_development");
   const master = await service.commit({
     workflowId: created.workflowId, expectedRevision: mastering.revision, kind: "submit_master_draft", summary: "Submit master",
-    context: { masterDraft: validVideoMasterDraft(), masterReview: validMasterReview("video") }, idempotencyKey: "e2e-master-draft",
+    context: { masterDraft: validVideoMasterDraft(), masterReview: auditedReview("video", mastering) }, idempotencyKey: "e2e-master-draft",
   });
   assert.equal(master.artifactRefs.some((artifact) => artifact.kind === "master_review"), true);
   const lockedMaster = await service.commit({ workflowId: created.workflowId, expectedRevision: master.revision, kind: "lock_master", summary: "Lock master", context: {}, idempotencyKey: "e2e-lock-master" });
@@ -290,7 +290,8 @@ test("video workflow connects outline, master, requirements, production, and rel
   assert.equal(requirements.state, "REQUIREMENTS_READY");
   assert.equal(requirements.artifactRefs.some((artifact) => artifact.kind === "requirement_set"), true);
   assert.equal(requirements.artifactRefs.some((artifact) => artifact.kind === "preproduction_material_plan"), true);
-  const review = await service.run({ workflowId: created.workflowId, expectedRevision: requirements.revision, idempotencyKey: "e2e-human-review" });
+  const detailed = await detailRequirements(service, new ArtifactStore(join(directory, "artifacts")), requirements);
+  const review = await service.run({ workflowId: created.workflowId, expectedRevision: detailed.revision, idempotencyKey: "e2e-human-review" });
   assert.equal(review.state, "AWAITING_HUMAN_REVIEW");
   assert.equal(review.artifactRefs.some((artifact) => artifact.kind === "human_review_packet"), true);
   const reviewPacket = review.artifactRefs.find((artifact) => artifact.kind === "human_review_packet");
@@ -367,11 +368,12 @@ test("article workflow assembles a local preview before production lock and rele
   const mastering = await service.run({ workflowId: created.workflowId, expectedRevision: lockedOutline.revision, idempotencyKey: "article-master-brief" });
   assert.equal(mastering.agentWork.guidance.policies.some((policy) => policy.id === "product-tweet-manuscript-proof"), true);
   assert.equal(mastering.agentWork.guidance.policies.some((policy) => policy.id === "product-tweet-visual-proof"), true);
-  const master = await service.commit({ workflowId: created.workflowId, expectedRevision: mastering.revision, kind: "submit_master_draft", summary: "Master", context: { masterDraft: validArticleMasterDraft(), masterReview: validMasterReview("article") }, idempotencyKey: "article-master" });
+  const master = await service.commit({ workflowId: created.workflowId, expectedRevision: mastering.revision, kind: "submit_master_draft", summary: "Master", context: { masterDraft: validArticleMasterDraft(), masterReview: auditedReview("article", mastering) }, idempotencyKey: "article-master" });
   assert.equal(master.artifactRefs.some((artifact) => artifact.kind === "master_review"), true);
   const lockedMaster = await service.commit({ workflowId: created.workflowId, expectedRevision: master.revision, kind: "lock_master", summary: "Lock master", context: {}, idempotencyKey: "article-lock-master" });
   const requirements = await service.run({ workflowId: created.workflowId, expectedRevision: lockedMaster.revision, idempotencyKey: "article-compile" });
-  const review = await service.run({ workflowId: created.workflowId, expectedRevision: requirements.revision, idempotencyKey: "article-human-review" });
+  const detailed = await detailRequirements(service, artifacts, requirements);
+  const review = await service.run({ workflowId: created.workflowId, expectedRevision: detailed.revision, idempotencyKey: "article-human-review" });
   assert.equal(review.state, "AWAITING_HUMAN_REVIEW");
   const reviewPacket = review.artifactRefs.find((artifact) => artifact.kind === "human_review_packet");
   assert.ok(reviewPacket);
@@ -568,6 +570,18 @@ function validMasterReview(carrier) {
     storyboardDirection: carrier === "video" ? { skill: "storyboard-direction", scope: "shot-continuity-coverage-assets", passed: true, findings: ["Continuity checked."] } : null,
     articleEditorial: carrier === "article" ? { skill: "product-tweet-editor", scope: "human-center-evidence-voice", passed: true, findings: ["The human concern remains connected to evidence."] } : null,
   };
+}
+
+function auditedReview(carrier, snapshot) {
+  return { ...validMasterReview(carrier), audit: { masterHash: contentHash(readMasterDraft(carrier === "video" ? validVideoMasterDraft() : validArticleMasterDraft())), requirementsHash: snapshot.editorialContext.requirementsHash, rationale: "The scene establishes the reader problem, the observable memory record supplies the evidence, and the conclusion stays within that evidence.", findings: [] } };
+}
+
+async function detailRequirements(service, artifacts, snapshot) {
+  const base = snapshot.artifactRefs.filter(a => a.kind === "requirement_set").at(-1);
+  const { content } = await artifacts.read(base.artifactId);
+  assert.ok(content.requirements.every(r => r.captureProtocol));
+  await assert.rejects(service.run({ workflowId: snapshot.workflowId, expectedRevision: snapshot.revision, idempotencyKey: "premature-review" }), /productionProcedure/);
+  return service.commit({ workflowId: snapshot.workflowId, expectedRevision: snapshot.revision, kind: "submit_requirement_details", summary: "Detailed production steps", idempotencyKey: "detail-requirements", context: { baseArtifactId: base.artifactId, details: content.requirements.map(r => ({ requirementId: r.requirementId, productionProcedure: `准备：打开演示账户并清除敏感数据。\n步骤：录制操作前后可见状态，保存原始证据。\n${r.usages.map(u => `${u.usageId}：输出一张保留前后状态和用途说明的截图。`).join("\n")}\n验收：逐个使用位对照原始证据。\n失败处理：无法复现时标记缺失，不用模拟图冒充。` })), executionReview: { passed: true, evidence: "Every usage has a named output; the visible states remain constrained by the source capture protocol." } } });
 }
 
 function validArticleMasterDraft() {
