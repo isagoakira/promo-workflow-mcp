@@ -38,6 +38,41 @@ test('free selections preserve Unicode, Markdown, multi-paragraph ranges and exa
   assert.equal(validateAnnotation({...input,anchors:[]},a).anchors.length,0);
 });
 
+test('text review exposes only the editorial text of every annotatable deliverable',async()=>{
+  const root=await mkdtemp(join(tmpdir(),'promo-text-fields-'));
+  const store=new JsonWorkflowStore(join(root,'workflows.json')), artifacts=new ArtifactStore(join(root,'artifacts'));
+  const master=await artifacts.write({kind:'content_master_draft',content:{
+    master:{title:'真正的标题',bodyMarkdown:'真正的正文',primaryCallToAction:'不该出现的独立 CTA',alternativeTitles:['不该出现的备选标题'],assetPlan:{sourceAssets:[{id:'asset-1',purpose:'不该出现的素材计划'}]}},
+    review:{audit:{rationale:'不该出现的审计理由'}},warnings:['不该出现的警告'],pendingQuestion:{prompt:'不该出现的追问'},
+  }});
+  const baseline=await artifacts.write({kind:'baseline',content:{coreMessage:'核心主张',guidanceIntent:'引导意图',campaignIntent:{audienceMoment:'读者场景',immediateBenefit:'即时收益',longTermBenefit:'长期收益',beliefToChange:'改变认知',proofToShow:'证明内容',evidenceBoundary:'事实边界',narratorPosition:'叙述位置',promotionalTemperature:'宣传温度',primaryCallToAction:'行动引导',avoid:['避免套话']},articleEditorialIntent:{readerDecision:'读者决定',humanCenter:'人的处境',authorStance:'作者立场',warmThread:'温度线',emotionalArc:'情绪变化',evidencePosture:'证据姿态'},topicId:'topic-1',confirmedAt:'2026-01-01'}});
+  const outline=await artifacts.write({kind:'creative_outline',content:{
+    creativeSpine:{routeId:'route-1',creativePremise:'创意前提',storyEngine:'叙事引擎',narrativeAnchor:'叙事锚点',openingMove:'开场动作',progression:'推进方式',proofPlan:'证明计划',endingMove:'结尾动作',macroStyle:{speakerPosition:'不该出现的风格元数据'}},
+    outline:{carrier:'article',openingDirection:'开场方向',sections:[{id:'section-1',sectionPurpose:'段落职责',sceneOrAction:'具体场景',content:'段落内容',readerShift:'读者变化',evidence:['证据说明'],authorJudgment:'作者判断',avoid:'避免事项',transition:'过渡',visualAsset:'配图说明'}],titleDirections:['标题方向'],unsupportedClaims:['不可证实主张'],ending:'结尾',primaryCallToAction:'行动引导'},
+    macroStyleReview:{skill:'geek-product-promo-writing',scope:'macro',passed:true,findings:['不该出现的审核结论']},confirmedAt:'2026-01-01',
+  }});
+  const requirements=await artifacts.write({kind:'requirement_set',content:{requirements:[{requirementId:'req-1',productionProcedure:'制作流程',usages:[{usageId:'usage-1',purpose:'使用用途'}],constraints:['拍摄约束'],captureProtocol:{continuousPath:'操作路径',requiredVisibleStates:['可见状态'],editingHandles:'剪辑把手',backupStrategy:'备选方案'}}],derivedFrom:{contentMasterArtifactId:'meta-id'}}});
+  const release=await artifacts.write({kind:'release_package_draft',content:{draft:{titleCandidates:[{id:'title-1',title:'发布标题',sourceArtifactIds:['meta-id']}],coverCandidates:[{id:'cover-1',artifactId:'meta-id',brief:'封面说明',sourceArtifactIds:['meta-id']}],summaryDraft:{text:'发布摘要',sourceArtifactIds:['meta-id']}},warnings:['不该出现的警告']}});
+  const outlineScript=await artifacts.write({kind:'outline_script',content:{hookAndFirstFrame:'视频开场',beats:[{id:'beat-1',segmentPurpose:'段落职责',speaker:'讲述者',speakerAction:'动作',spokenFunction:'口播功能',presentation:'呈现方式',visualFunction:'画面作用',evidence:['证据'],transition:'转场'}],proofBoundary:['不能证明的事'],ending:'视频结尾',primaryCallToAction:'视频行动',acceptance:['验收要求']}});
+  const spoken=await artifacts.write({kind:'spoken_script',content:{lines:[{id:'line-1',text:'口播台词',recordingDirection:'不该出现的录制元数据'}],fixedOnScreenText:[{shotId:'shot-1',text:'屏幕文字'}],acceptance:['不该出现的验收']}});
+  const recording=await artifacts.write({kind:'recording_execution',content:{defaultRules:['录制规则'],tasks:[{id:'task-1',sourceLineId:'line-1',script:'录制台词',direction:'录制指导',setup:{composition:'构图',cameraBehavior:'运镜',visualCoverage:'画面覆盖'},fileStem:'不该出现的文件名'}],acceptance:['录制验收']}});
+  await store.write({schemaVersion:1,workflows:{wf:{id:'wf',carrier:'article',rootDirectory:root,state:'REQUIREMENTS_READY',revision:1,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),summary:'fixture',context:{artifactRefs:[master,baseline,outline,requirements,release,outlineScript,spoken,recording]},events:[],idempotency:{}}}});
+  const review=await new WorkflowService(store,artifacts).textReview('wf');
+  const fields=Object.fromEntries(review.artifacts.map(a=>[a.kind,a.fields.map(f=>f.field)]));
+  assert.deepEqual(fields.baseline,['/coreMessage','/guidanceIntent','/campaignIntent/audienceMoment','/campaignIntent/immediateBenefit','/campaignIntent/longTermBenefit','/campaignIntent/beliefToChange','/campaignIntent/proofToShow','/campaignIntent/evidenceBoundary','/campaignIntent/narratorPosition','/campaignIntent/promotionalTemperature','/campaignIntent/primaryCallToAction','/campaignIntent/avoid/0','/articleEditorialIntent/readerDecision','/articleEditorialIntent/humanCenter','/articleEditorialIntent/authorStance','/articleEditorialIntent/warmThread','/articleEditorialIntent/emotionalArc','/articleEditorialIntent/evidencePosture']);
+  assert.deepEqual(fields.content_master_draft,['/master/title','/master/bodyMarkdown']);
+  assert.deepEqual(fields.creative_outline,[
+    '/creativeSpine/creativePremise','/creativeSpine/storyEngine','/creativeSpine/narrativeAnchor','/creativeSpine/openingMove','/creativeSpine/progression','/creativeSpine/proofPlan','/creativeSpine/endingMove',
+    '/outline/openingDirection','/outline/sections/0/sectionPurpose','/outline/sections/0/sceneOrAction','/outline/sections/0/content','/outline/sections/0/readerShift','/outline/sections/0/evidence/0','/outline/sections/0/authorJudgment','/outline/sections/0/avoid','/outline/sections/0/transition','/outline/sections/0/visualAsset','/outline/titleDirections/0','/outline/unsupportedClaims/0','/outline/ending','/outline/primaryCallToAction',
+  ]);
+  assert.deepEqual(fields.requirement_set,['/requirements/0/productionProcedure','/requirements/0/usages/0/purpose','/requirements/0/constraints/0','/requirements/0/captureProtocol/continuousPath','/requirements/0/captureProtocol/requiredVisibleStates/0','/requirements/0/captureProtocol/editingHandles','/requirements/0/captureProtocol/backupStrategy']);
+  assert.deepEqual(fields.release_package_draft,['/draft/titleCandidates/0/title','/draft/coverCandidates/0/brief','/draft/summaryDraft/text']);
+  assert.deepEqual(fields.outline_script,['/hookAndFirstFrame','/beats/0/segmentPurpose','/beats/0/speaker','/beats/0/speakerAction','/beats/0/spokenFunction','/beats/0/presentation','/beats/0/visualFunction','/beats/0/evidence/0','/beats/0/transition','/proofBoundary/0','/ending','/primaryCallToAction','/acceptance/0']);
+  assert.deepEqual(fields.spoken_script,['/lines/0/text','/fixedOnScreenText/0/text']);
+  assert.deepEqual(fields.recording_execution,['/defaultRules/0','/tasks/0/script','/tasks/0/direction','/tasks/0/setup/composition','/tasks/0/setup/cameraBehavior','/tasks/0/setup/visualCoverage','/acceptance/0']);
+  await assert.rejects(new WorkflowService(store,artifacts).saveAnnotation('wf',{artifactId:master.artifactId,contentHash:master.contentHash,anchors:[{field:'/master/alternativeTitles/0',start:0,end:2,quote:'不该'}],body:'这不该可批注',idempotencyKey:'reject-meta'}),/Selection does not match/);
+});
+
 async function fixture(){
   const root=await mkdtemp(join(tmpdir(),'promo-feedback-'));
   const store=new JsonWorkflowStore(join(root,'workflows.json')), artifacts=new ArtifactStore(join(root,'artifacts'));

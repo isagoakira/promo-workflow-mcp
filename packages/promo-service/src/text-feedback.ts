@@ -30,6 +30,57 @@ export function textFields(value: unknown, path = ""): { field: string; text: st
   if (!value || typeof value !== "object") return [];
   return Object.entries(value).flatMap(([key, child]) => textFields(child, `${path}/${key.replace(/~/g, "~0").replace(/\//g, "~1")}`));
 }
+
+/**
+ * The text desk is an editorial surface, not a JSON inspector.  Keep its
+ * allow-list here, next to anchor validation, so the browser cannot expose or
+ * accept feedback on IDs, audit records, workflow state, or implementation
+ * metadata even if a client is stale or modified.
+ */
+export function annotationFields(kind: string, value: unknown): { field: string; text: string }[] {
+  return textFields(value).filter(({ field }) => isAnnotationField(textFamily(kind), field));
+}
+
+function isAnnotationField(family: string, field: string): boolean {
+  switch (family) {
+    case "baseline":
+      return /^\/(coreMessage|guidanceIntent)$/.test(field)
+        || /^\/campaignIntent\/(audienceMoment|immediateBenefit|longTermBenefit|beliefToChange|proofToShow|evidenceBoundary|narratorPosition|promotionalTemperature|primaryCallToAction|avoid\/\d+)$/.test(field)
+        || /^\/articleEditorialIntent\/(readerDecision|humanCenter|authorStance|warmThread|emotionalArc|evidencePosture)$/.test(field);
+    case "creative_outline":
+      return /^\/creativeSpine\/(creativePremise|storyEngine|narrativeAnchor|openingMove|progression|proofPlan|endingMove)$/.test(field)
+        || /^\/outline\/(hookAndFirstFrame|openingDirection|ending|primaryCallToAction)$/.test(field)
+        || /^\/outline\/(titleDirections|unsupportedClaims)\/\d+$/.test(field)
+        || /^\/outline\/editorialIntent\/(readerDecision|humanCenter|authorStance|warmThread|emotionalArc|evidencePosture)$/.test(field)
+        || /^\/outline\/(segments|sections)\/\d+\/(segmentPurpose|speaker|speakerAction|spokenFunction|presentation|visualFunction|transition|sectionPurpose|sceneOrAction|content|readerShift|authorJudgment|avoid|visualAsset)$/.test(field)
+        || /^\/outline\/(segments|sections)\/\d+\/evidence\/\d+$/.test(field);
+    case "content_master":
+      return /^\/master\/(title|bodyMarkdown|workingTitle)$/.test(field)
+        || /^\/master\/shots\/\d+\/(shotPurpose|spokenContent|recordingDirection|sound|visualAction|composition|cameraBehavior|onScreenText|transition)$/.test(field);
+    case "requirement_set":
+      return /^\/requirements\/\d+\/(productionProcedure|constraints\/\d+)$/.test(field)
+        || /^\/requirements\/\d+\/usages\/\d+\/(purpose|oneOffJustification)$/.test(field)
+        || /^\/requirements\/\d+\/captureProtocol\/(continuousPath|editingHandles|backupStrategy|requiredVisibleStates\/\d+)$/.test(field)
+        || /^\/subtitles\/(srt|cues\/\d+\/text)$/.test(field);
+    case "spoken_script":
+      return /^\/(lines\/\d+\/text|fixedOnScreenText\/\d+\/text)$/.test(field);
+    case "recording_execution":
+      return /^\/(defaultRules|acceptance)\/\d+$/.test(field)
+        || /^\/tasks\/\d+\/(script|direction)$/.test(field)
+        || /^\/tasks\/\d+\/setup\/(composition|cameraBehavior|visualCoverage)$/.test(field);
+    case "outline_script":
+      return /^\/(hookAndFirstFrame|ending|primaryCallToAction)$/.test(field)
+        || /^\/(acceptance|proofBoundary)\/\d+$/.test(field)
+        || /^\/beats\/\d+\/(segmentPurpose|speaker|speakerAction|spokenFunction|presentation|visualFunction|transition)$/.test(field)
+        || /^\/beats\/\d+\/evidence\/\d+$/.test(field);
+    case "release_package":
+      return /^\/draft\/titleCandidates\/\d+\/title$/.test(field)
+        || /^\/draft\/coverCandidates\/\d+\/brief$/.test(field)
+        || /^\/draft\/(summaryDraft|introductionDraft)\/text$/.test(field);
+    default:
+      return false;
+  }
+}
 export function isTextArtifact(kind: string): boolean {
   return ["baseline", "baseline_draft", "creative_outline", "creative_outline_draft", "content_master", "content_master_draft", "spoken_script", "recording_execution", "requirement_set", "release_package", "release_package_draft", "outline_script"].includes(kind);
 }
@@ -40,7 +91,7 @@ export function validateAnnotation(input: Record<string, unknown>, artifact: Art
   if (previous && input.expectedAnnotationRevision !== previous.revision) throw new Error("Annotation revision conflict; reload before editing.");
   if (typeof input.body !== "string" || !input.body.trim() || input.body.length > 10000) throw new Error("Annotation body requires 1–10000 characters.");
   if (!Array.isArray(input.anchors) || input.anchors.length > 32) throw new Error("anchors must contain at most 32 selections (empty means whole deliverable).");
-  const fields = new Map(textFields(artifact.content).map(f => [f.field, f.text]));
+  const fields = new Map(annotationFields(artifact.kind, artifact.content).map(f => [f.field, f.text]));
   const anchors = input.anchors.map(item => {
     if (!item || typeof item !== "object") throw new Error("Invalid selection.");
     const a = item as TextAnchor;
@@ -77,7 +128,7 @@ export function readReceipts(value: unknown, feedback: TextFeedback, newArtifact
     if (r.action === "changed" && (!target || !isTextArtifact(target.kind) || target.artifactId === annotation.artifactId || target.contentHash === annotation.contentHash)) throw new Error("changed requires a new text artifact in this commit; a reply is not a modification.");
     if (r.action === "changed") {
       const original = originals.find(a => a.artifactId === annotation.artifactId);
-      const relevant = (artifact: ArtifactRecord) => textFields(artifact.content).filter(f => !/^\/(review|audit|warnings|pendingQuestion|incorporatesDecisionIds|confirmedAt|editorialAcceptanceNote)(\/|$)/.test(f.field));
+      const relevant = (artifact: ArtifactRecord) => annotationFields(artifact.kind, artifact.content);
       if (!original || textFamily(original.kind) !== textFamily(target!.kind) || JSON.stringify(relevant(original)) === JSON.stringify(relevant(target!))) throw new Error("changed requires a substantive text change in the same deliverable, not only a review or lock record.");
     }
     if (r.verification !== undefined && (r.action !== "changed" || typeof r.verification !== "string" || !r.verification.trim())) throw new Error("Verification needs a changed text artifact and concrete evidence.");

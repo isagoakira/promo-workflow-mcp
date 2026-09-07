@@ -36,9 +36,12 @@ export const TEXT_REVIEW_JS = String.raw`
     versions.forEach((a,i)=> {const o=el('option','第 '+(i+1)+' 版 · '+new Date(a.createdAt).toLocaleString()+(i===versions.length-1?' · 最新':''));o.value=a.artifactId;o.selected=a.artifactId===current.artifactId;picker.append(o);});
     picker.onchange=()=>{if(!confirmDiscard()){picker.value=current.artifactId;return;}current=review.artifacts.find(a=>a.artifactId===picker.value);resetDraft();render();};
     top.append(picker,button('与上一版对比',showDiff),button('检查更新',refresh),button('关闭',()=>{if(!confirmDiscard())return;desk.remove();desk=null;window.promoTextReviewOpen=false;document.getElementById('refresh')?.click();}));
-    desk.append(top,el('div','选中正文任意范围后添加批注，可跨段或追加多个片段。保存后在下一轮关联流程对话中处理。','text-status'));
+    desk.append(top,el('div','选中当前交付物中的文字后添加批注，可跨段或追加多个片段。保存后在下一轮关联流程对话中处理。','text-status'));
     const layout=el('div',undefined,'text-layout'), pages=el('div',undefined,'text-pages'), comments=el('aside',undefined,'text-comments');
-    const fields=current.fields.filter(f=>f.text.trim() && !/\/(id|.*Id|.*Hash|skill|scope|carrier|confirmedAt|reviewedAt|preferredRoute)$/.test(f.field) && !f.field.startsWith('/review/'));
+    // The service has already applied the per-deliverable editorial allow-list.
+    // Keeping this client deliberately dumb prevents UI heuristics from drifting
+    // away from the server-side rules that validate saved anchors.
+    const fields=current.fields.filter(f=>f.text.trim());
     const labels={bodyMarkdown:'正文',title:'标题',productionProcedure:'制作流程',spokenContent:'口播',readerDecision:'读者决定',humanCenter:'编辑目光',warmThread:'温度主线',authorStance:'叙述立场',evidencePosture:'事实边界',emotionalArc:'注意力变化',purpose:'用途'};
     fields.forEach(f=>{ const label=f.field.split('/').at(-1);pages.append(el('h3',labels[label]||f.field));const p=el('div',f.text,'text-field');p.dataset.field=f.field;pages.append(p); });
     const controls=el('div',undefined,'text-toolbar');controls.append(button('添加选区 / 追加片段',capture),button('全文批注',()=>{selections=[];selectionSummary();desk.querySelector('textarea').focus();}));

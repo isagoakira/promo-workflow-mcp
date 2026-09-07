@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { contentHash, readAudit, validateEditorialAudit } from "./editorial-audit.js";
-import { feedbackFor, feedbackSnapshot, latestAnnotations, validateAnnotation, readReceipts, isTextArtifact, textFamily, textFields, locateAnchor } from "./text-feedback.js";
+import { feedbackFor, feedbackSnapshot, latestAnnotations, validateAnnotation, readReceipts, isTextArtifact, textFamily, annotationFields, locateAnchor } from "./text-feedback.js";
 import { resolve } from "node:path";
 
 import type { ArticleManuscriptMaster, ArticlePlatformBranch, PlatformProfile, WorkflowState } from "@promo-workflow/contracts";
@@ -1125,11 +1125,11 @@ export class WorkflowService {
       const original = artifacts.find(a => a.artifactId === annotation.artifactId);
       const latest = original ? artifacts.filter(a => textFamily(a.kind) === textFamily(original.kind)).at(-1) : undefined;
       if (!latest || latest.artifactId === annotation.artifactId) return { ...annotation, mappedTo: null };
-      const fields = new Map(textFields(latest.content).map(f => [f.field, f.text]));
+      const fields = new Map(annotationFields(latest.kind, latest.content).map(f => [f.field, f.text]));
       const anchors = annotation.anchors.map(a => { const position = locateAnchor(a, fields.get(a.field) ?? ""); return position ? { ...a, ...position } : null; });
       return { ...annotation, mappedTo: anchors.every(a => a !== null) ? { artifactId: latest.artifactId, anchors } : null };
     });
-    return { workflowId, revision: record.revision, feedback: { ...feedback, items }, history: feedbackFor(record.textFeedback), artifacts: artifacts.map(a => ({ ...a, family: textFamily(a.kind), fields: textFields(a.content) })) };
+    return { workflowId, revision: record.revision, feedback: { ...feedback, items }, history: feedbackFor(record.textFeedback), artifacts: artifacts.map(a => ({ ...a, family: textFamily(a.kind), fields: annotationFields(a.kind, a.content) })) };
   }
 
   private async returnToTextNode(record: WorkflowRecord, node: number) {
