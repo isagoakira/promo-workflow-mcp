@@ -1,4 +1,7 @@
 import { randomUUID } from "node:crypto";
+import { createVideoProduction, changeVideoProduction, VIDEO_PRODUCTION_PHASES } from './video-production.js';
+import { videoReviewFor, mergeVideoPreviews, changeVideoAnnotation } from "./video-review.js";
+import { resolveVideoMaterials } from "./video-materials.js";
 import { contentHash, readAudit, validateEditorialAudit } from "./editorial-audit.js";
 import { feedbackFor, feedbackSnapshot, latestAnnotations, validateAnnotation, readReceipts, isTextArtifact, textFamily, annotationFields, locateAnchor } from "./text-feedback.js";
 import { resolve } from "node:path";
@@ -18,6 +21,7 @@ import {
 import { buildArticleAssemblerOutput, type AcceptedArticleAssetResult } from "./article-assembler-adapter.js";
 
 import { createAgentWorkCapsule, createGuidanceRequest, type AgentWorkCapsule, type GuidanceId } from "./agent-work.js";
+import { EDITORIAL_ISSUE_CODES, type EditorialIssueCode } from "./editorial-problem-guidance.js";
 import { ArtifactStore } from "./artifacts/store.js";
 import type { ArtifactKind, ArtifactRef } from "./artifacts/types.js";
 import { createBaselineBrief, readBaselineProposal } from "./baseline.js";
@@ -25,6 +29,7 @@ import { assertOutlineGrillCapacity, createCreativeOutlineBrief, readCreativeOut
 import { unavailableCutWorkbenchBridge, runCutWorkbenchBridge, type CutWorkbenchBridge, type CutWorkbenchProductionResult } from "./cut-workbench-bridge.js";
 import { unavailableVectCutBridge, runVectCutBridge, type VectCutBridge, type VectCutDraftResult, type VectCutMediaSource } from "./vectcut-bridge.js";
 import { createMasterDevelopmentBrief, readMasterDraft, validateMasterDraft } from "./master-development.js";
+import { validateEditorialLoop, type EditorialLoopBase } from "./editorial-loop.js";
 import { createArticleProductionArtifacts, createProductionUnitPlan, getArticleReviewGate, getProductionControl, type ProductionUnitPlan } from "./production.js";
 import { validateProductionResults, type ProductionUnitAcceptanceResult } from "./production-results.js";
 import { compileRequirements, type CompiledRequirementSet, type MasterAssetUsage } from "./requirements-compiler.js";
@@ -209,11 +214,11 @@ export class WorkflowService {
   }
 
   /** Resolves only the full MCP-owned guidance declared by the current node. */
-  async guidance(workflowId: string, requestedIds?: readonly GuidanceId[]): Promise<Record<string, unknown>> {
+  async guidance(workflowId: string, requestedIds?: readonly GuidanceId[], issueCodes: readonly EditorialIssueCode[] = []): Promise<Record<string, unknown>> {
     const data = await this.store.read();
     const record = requireWorkflow(data.workflows[workflowId], workflowId);
     const workspaceScope = this.workspaceScopeForRecord(record);
-    const work = decorateAgentWork(agentWorkFor(record.context), workspaceScope);
+    const work = decorateAgentWork(agentWorkFor(record.context), workspaceScope, record.carrier);
     if (!work?.guidance) {
       const workspaceAction = workspacePendingAction(record);
       if (workspaceAction) {
@@ -228,10 +233,15 @@ export class WorkflowService {
       throw new Error("当前节点没有可加载的指导。请先调用 promo_run 生成 agentWork。");
     }
     const allowedIds = work.guidance.policies.map((policy) => policy.id);
-    const requested = requestedIds === undefined ? allowedIds : [...new Set(requestedIds)];
+    if (issueCodes.length && (record.carrier !== "article" || work.stage !== "master_development" || !allowedIds.includes("editorial-problem-router"))) {
+      throw new Error("Editorial issue codes are only available during article master development; video review uses version-bound video annotations.");
+    }
     const highPriorityIds = work.guidance.policies
       .filter((policy) => policy.priority === "high")
       .map((policy) => policy.id);
+    // An omitted selection is deliberately narrow: mandatory checks only.
+    // Focused methods are loaded only when the caller names the current task.
+    const requested = requestedIds === undefined ? highPriorityIds : [...new Set(requestedIds)];
     const ids = [...new Set([...highPriorityIds, ...requested])];
     const unavailable = ids.filter((id) => !allowedIds.includes(id));
     if (unavailable.length > 0) {
@@ -241,7 +251,8 @@ export class WorkflowService {
       workflowId: record.id,
       state: record.state,
       stage: work.stage,
-      guides: loadGuidance(ids),
+      guides: loadGuidance(ids, { issueCodes }),
+      guidanceTrace: { phase: issueCodes.length ? "repair" : "detect", issueCodes },
       workspace: workspaceScope,
       workspaceDeliverables: workspaceDeliverablesFor(record.context),
     };
@@ -444,6 +455,15 @@ export class WorkflowService {
             parentArtifactIds: artifactIdsFor(record.context), revision: record.revision + 1,
           });
           record.context = withArtifact(record.context, handoff, { cutWorkbenchResult: bridgeResult, productionHandoffArtifactId: handoff.artifactId });
+          if (bridgeResult.previews) {
+            record.videoReview = mergeVideoPreviews(videoReviewFor(record.videoReview), bridgeResult.previews, bridgeResult.currentPreviewId ?? null);
+            for (const update of bridgeResult.annotationUpdates ?? []) {
+              const original = record.videoReview.annotations.find(a => a.id === update.id);
+              if (original?.status === "open" && update.status === "addressed" && update.targetPreviewId === record.videoReview.currentPreviewId) {
+                record.videoReview = changeVideoAnnotation(record.videoReview, { action: "address", annotationId: original.id, expectedAnnotationRevision: original.revision, targetPreviewId: update.targetPreviewId, reply: update.reply ?? "Cutbench 已生成修改版，请人工复核。" }, []);
+              }
+            }
+          }
           record.summary = bridgeResult.finalGate.passed
             ? "Cut Workbench 已返回已验证的视频成品引用；等待最终锁定。"
             : "Cut Workbench 项目已建立或同步；请在其生产工作流完成终剪、字幕、验证和交付门禁后，再次运行 promo_run。";
@@ -680,6 +700,7 @@ export class WorkflowService {
       });
       if (decision === "approve") {
         record.state = "PRODUCING";
+        if (record.carrier === 'video' && !record.videoProduction) record.videoProduction = createVideoProduction(requireText(record.context.requirementSetArtifactId, 'requirementSetArtifactId'));
         record.summary = input.summary;
         record.revision += 1;
         record.updatedAt = new Date().toISOString();
@@ -919,6 +940,13 @@ export class WorkflowService {
         const validation = validateMasterDraft(master, { budget: creativeOutline.budget });
         if (!validation.passed) throw new Error(`Master draft is invalid: ${validation.errors.join(" ")}`);
         const review = readMasterReview(input.context.masterReview, master.carrier);
+        const priorMasterId = typeof record.context.masterDraftArtifactId === "string" ? record.context.masterDraftArtifactId : undefined;
+        const priorMasterArtifact = priorMasterId ? await this.artifacts.read(priorMasterId) : undefined;
+        const priorMasterContent = priorMasterArtifact && isRecord(priorMasterArtifact.content) ? priorMasterArtifact.content.master : undefined;
+        const loopBase: EditorialLoopBase | undefined = priorMasterArtifact && priorMasterContent
+          ? { artifactId: priorMasterArtifact.artifactId, master: readMasterDraft(priorMasterContent) }
+          : undefined;
+        validateEditorialLoop(review, master, loopBase);
         validateEditorialAudit(review, master, await this.currentRequirementsFor(record.context));
         assertDecisionsIncorporated(readStringArrayOrEmpty(input.context.incorporatesDecisionIds, "incorporatesDecisionIds"), unresolvedDecisionIds(record.context));
         const pendingQuestion = optionalScenarioQuestion(input.context.masterGrillQuestion, "masterGrillQuestion");
@@ -1034,7 +1062,7 @@ export class WorkflowService {
         const results = this.productionResultsFor(record.context, plan.units, units);
         const production = record.carrier === "article"
           ? await this.lockAssembledArticle(record, units, input.context)
-          : this.lockVideoProduction(record, input.context);
+          : await this.lockVideoProduction(record, input.context, results);
         const artifact = await this.artifacts.write({
           kind: "production_locked",
           content: production,
@@ -1130,6 +1158,88 @@ export class WorkflowService {
       return { ...annotation, mappedTo: anchors.every(a => a !== null) ? { artifactId: latest.artifactId, anchors } : null };
     });
     return { workflowId, revision: record.revision, feedback: { ...feedback, items }, history: feedbackFor(record.textFeedback), artifacts: artifacts.map(a => ({ ...a, family: textFamily(a.kind), fields: annotationFields(a.kind, a.content) })) };
+  }
+
+  async videoReview(workflowId: string) {
+    const data = await this.store.read();
+    const record = requireWorkflow(data.workflows[workflowId], workflowId);
+    if (record.carrier !== "video") throw new Error("Video review requires a video workflow.");
+    return { workflowId, revision: record.revision, ...videoReviewFor(record.videoReview) };
+  }
+
+  async videoProduction(workflowId: string) {
+    const data = await this.store.read();
+    const record = requireWorkflow(data.workflows[workflowId], workflowId);
+    if (record.carrier !== 'video') throw Error('Video production requires a video workflow.');
+    const submissionArtifacts = await Promise.all((record.videoProduction?.submission?.artifactIds ?? []).map(async id => {
+      if (!artifactIdsFor(record.context).includes(id)) throw Error('Submission artifact no longer belongs to this workflow.');
+      return this.artifacts.read(id);
+    }));
+    return { workflowId, revision: record.revision, workflowState: record.state, production: record.videoProduction ?? null, phases: VIDEO_PRODUCTION_PHASES, videoReview: videoReviewFor(record.videoReview), submissionArtifacts };
+  }
+
+  async updateVideoProduction(input: Record<string, unknown>, actor: 'human' | 'agent' = 'agent') {
+    return this.store.exclusive(async () => {
+      const workflowId = requireText(input.workflowId, 'workflowId');
+      const data = await this.store.read(), record = requireWorkflow(data.workflows[workflowId], workflowId);
+      if (record.carrier !== 'video') throw Error('Video production requires a video workflow.');
+      const key = 'production:' + requireText(input.idempotencyKey, 'idempotencyKey'), hash = contentHash({ input, actor });
+      if (record.feedbackIdempotency?.[key]) {
+        if (record.feedbackIdempotency[key] !== hash) throw Error('Production idempotency conflict.');
+        return { workflowId, revision: record.revision, production: record.videoProduction };
+      }
+      if (input.expectedRevision !== record.revision) throw Error('Workflow revision conflict; reload production.');
+      if (record.state !== 'PRODUCING') throw Error('Production operations require node 6; finish upstream decisions first.');
+      const planArtifactId = requireText(record.context.requirementSetArtifactId, 'locked requirementSetArtifactId');
+      const action = requireText(input.action, 'action');
+      if (action === 'start') {
+        if (record.videoProduction) throw Error('Production already exists; continue its current round.');
+        record.videoProduction = createVideoProduction(planArtifactId);
+      } else {
+        if (!record.videoProduction) throw Error('Start the resident production record first.');
+        const artifactIds = input.artifactIds === undefined ? [] : readStringArray(input.artifactIds, 'artifactIds');
+        for (const id of artifactIds) {
+          if (!artifactIdsFor(record.context).includes(id)) throw Error('Production evidence must belong to this workflow.');
+          await this.artifacts.read(id);
+        }
+        const review = videoReviewFor(record.videoReview);
+        record.videoProduction = changeVideoProduction(record.videoProduction, input, { actor, planArtifactId, currentPreviewId: review.currentPreviewId, unresolvedFeedback: review.annotations.some(a => a.status !== 'resolved') });
+        if (action === 'return_planning') await this.returnToTextNode(record, record.videoProduction.planningReturn!.node);
+      }
+      if (isRecord(record.context.cutWorkbenchResult)) record.context.cutWorkbenchResult = { ...record.context.cutWorkbenchResult, finalGate: { passed: false, blockers: ['Production round changed; re-verify delivery.'], verifiedAt: null } };
+      record.feedbackIdempotency = { ...record.feedbackIdempotency, [key]: hash };
+      record.revision++; record.updatedAt = new Date().toISOString();
+      appendEvent(record, 'note_saved', '视频制作：' + requireText(input.reason, 'reason'));
+      await this.store.write(data);
+      return { workflowId, revision: record.revision, workflowState: record.state, production: record.videoProduction };
+    });
+  }
+
+  async videoAnnotate(input: Record<string, unknown>) {
+    return this.store.exclusive(async () => {
+      const workflowId = requireText(input.workflowId, "workflowId");
+      const data = await this.store.read();
+      const record = requireWorkflow(data.workflows[workflowId], workflowId);
+      if (record.carrier !== "video") throw new Error("Video annotations require a video workflow.");
+      const key = `video:${requireText(input.idempotencyKey, "idempotencyKey")}`;
+      const hash = contentHash(input);
+      if (record.feedbackIdempotency?.[key]) {
+        if (record.feedbackIdempotency[key] !== hash) throw new Error("Video annotation idempotency conflict.");
+        return { workflowId, revision: record.revision, ...videoReviewFor(record.videoReview) };
+      }
+      if (input.expectedRevision !== record.revision) throw new Error("Workflow revision conflict; reload video review.");
+      const units = Array.isArray(record.context.productionUnits) ? record.context.productionUnits as ProductionUnit[] : [];
+      record.videoReview = changeVideoAnnotation(videoReviewFor(record.videoReview), input, units.map(u => u.id));
+      if (isRecord(record.context.cutWorkbenchResult) && isRecord(record.context.cutWorkbenchResult.finalGate)) {
+        record.context.cutWorkbenchResult = { ...record.context.cutWorkbenchResult, finalGate: { passed: false, blockers: ["Video feedback changed; synchronize and re-verify the current version."], verifiedAt: null } };
+      }
+      record.feedbackIdempotency = { ...record.feedbackIdempotency, [key]: hash };
+      record.revision += 1;
+      record.updatedAt = new Date().toISOString();
+      appendEvent(record, "note_saved", "视频批注已更新；原始时间位置与视频版本保持绑定。");
+      await this.store.write(data);
+      return { workflowId, revision: record.revision, ...record.videoReview };
+    });
   }
 
   private async returnToTextNode(record: WorkflowRecord, node: number) {
@@ -1428,12 +1538,16 @@ export class WorkflowService {
     record: WorkflowRecord,
     results: readonly ProductionUnitAcceptanceResult[],
   ) {
+    if (record.videoProduction?.status === 'paused_planning') throw Error('Production remains paused until the upstream decision and impact review are confirmed.');
+    if (record.videoProduction && record.videoProduction.planArtifactId !== record.context.requirementSetArtifactId) throw Error('Production plan changed; review affected phases before resuming.');
     const contentMaster = await this.contentMasterFor(record.context);
     const requirementSet = await this.requirementSetFor(record.context);
     if (contentMaster.master.carrier !== "video" || contentMaster.budget.carrier !== "video") {
       throw new Error("Video production requires a locked video master.");
     }
     const input = {
+      productionControl: record.videoProduction ? { phase: record.videoProduction.phase, round: record.videoProduction.round, tasks: record.videoProduction.tasks.filter(t => t.phase === record.videoProduction!.phase), instruction: VIDEO_PRODUCTION_PHASES.find(p => p.id === record.videoProduction!.phase)!.instruction } : undefined,
+      videoAnnotations: videoReviewFor(record.videoReview).annotations,
       lockedMaster: {
         topicId: contentMaster.topicId,
         budget: contentMaster.budget,
@@ -1453,13 +1567,20 @@ export class WorkflowService {
         mediaSources: readVectCutMediaSources(record.context.vectcutMediaSources),
       });
     }
-    return runCutWorkbenchBridge(this.cutWorkbenchBridge, input);
+    const materials = await resolveVideoMaterials(results, this.artifacts);
+    return runCutWorkbenchBridge(this.cutWorkbenchBridge, { ...input, mediaAssets: materials.assets, materialBlockers: materials.blockers });
   }
 
-  private lockVideoProduction(
+  private async lockVideoProduction(
     record: WorkflowRecord,
     lockContext: Record<string, unknown>,
-  ): ProductionLockedCapsule {
+    results: readonly ProductionUnitAcceptanceResult[],
+  ): Promise<ProductionLockedCapsule> {
+    if (!record.videoProduction || record.videoProduction.status !== 'complete' || record.videoProduction.planArtifactId !== record.context.requirementSetArtifactId) throw Error('Complete and confirm all six video production phases before delivery lock.');
+    const delivery = record.videoProduction.approvals.find(a => a.phase === 'delivery');
+    if (!delivery || delivery.previewId !== videoReviewFor(record.videoReview).currentPreviewId) throw Error('Delivery approval must bind the current video preview.');
+    const videoFeedback = videoReviewFor(record.videoReview);
+    if (videoFeedback.annotations.some(a => a.status !== "resolved")) throw new Error("Unresolved video feedback blocks production lock; review addressed changes or return planning feedback to Promo.");
     if (videoBackendFor(record.context) === "vectcut") {
       const result = record.context.vectcutResult as VectCutDraftResult | undefined;
       if (!result || result.kind !== "draft_result") {
@@ -1478,7 +1599,11 @@ export class WorkflowService {
         lockedAt: new Date().toISOString(),
       };
     }
-    const result = record.context.cutWorkbenchResult as CutWorkbenchProductionResult | undefined;
+    const fresh = await this.runVideoBridge(record, results);
+    if (fresh.kind === 'production_result' && fresh.currentPreviewId && fresh.currentPreviewId !== delivery.previewId) throw Error('Verification returned a different preview; submit it for human delivery review.');
+    if (fresh.kind !== "production_result") throw new Error("Current Cut Workbench verification is unavailable.");
+    const result = fresh;
+    record.context.cutWorkbenchResult = result;
     if (!result || result.kind !== "production_result" || !result.finalGate.passed) {
       throw new Error("Video production requires a configured Cut Workbench result with a passed final gate.");
     }
@@ -1520,7 +1645,8 @@ export class WorkflowService {
       updatedAt: record.updatedAt,
       summary: record.summary,
       ...(workspaceScope ? { workspace: workspaceScope } : {}),
-      agentWork: decorateAgentWork(rawAgentWork, workspaceScope),
+      agentWork: decorateAgentWork(record.videoProduction && rawAgentWork?.stage === 'production' ? { ...rawAgentWork, inputs: { ...rawAgentWork.inputs, videoProduction: record.videoProduction, currentPhaseGuide: VIDEO_PRODUCTION_PHASES.find(p => p.id === record.videoProduction!.phase) }, constraints: [...rawAgentWork.constraints, 'Read promo_video_production before editing. Work only on current phase tasks; submit the exact preview for human approval. Do not skip phases or resume paused production without an upstream decision and impact review.'] } : rawAgentWork, workspaceScope, record.carrier),
+      ...(record.videoProduction ? { videoProduction: record.videoProduction } : {}),
       fetchBrief: fetchBriefFor(record.context),
       topicMatch,
       ...(baselineProposal ? {
@@ -1531,6 +1657,7 @@ export class WorkflowService {
       status: statusFor(record.state, Boolean(workspacePendingAction(record))),
       artifactRefs: artifactRefsFor(record.context),
       reviewFeedback: feedbackSnapshot(feedbackFor(record.textFeedback)),
+      ...(record.carrier === "video" ? { videoReview: videoReviewFor(record.videoReview) } : {}),
       ...(typeof record.context.creativeOutlineArtifactId === "string" ? { editorialContext: await this.editorialContextFor(record.context) } : {}),
       pendingAction: pendingActionForRecord(record),
     };
@@ -2014,6 +2141,14 @@ function requirementDetailsBrief(requirements: CompiledRequirementSet, baseArtif
 function pendingActionForRecord(record: WorkflowRecord): PendingAction | null {
   const workspaceAction = workspacePendingAction(record);
   if (workspaceAction) return workspaceAction;
+  if (record.carrier === 'video' && record.state === 'PRODUCING') {
+    const p = record.videoProduction;
+    if (!p) return action('start_video_production', 'agent_work', '调用 promo_video_production_update(action=start) 建立第六节点常驻制作记录；先检查素材，不跳过人工分阶段确认。');
+    if (p.status !== 'complete') return action('continue_video_production', p.status === 'awaiting_review' || p.status === 'paused_planning' ? 'human_review' : 'agent_work', `${VIDEO_PRODUCTION_PHASES.find(s => s.id === p.phase)?.label} · 第 ${p.round} 轮 · ${p.status}。读取 promo_video_production，处理当前子任务；提交后在工作台确认本轮。返回策划后须明确受影响阶段再恢复。`);
+  }
+  const videoFeedback = videoReviewFor(record.videoReview);
+  if (record.carrier === "video" && videoFeedback.annotations.some(a => a.status !== "resolved" && a.intent === "planning_change")) return action("review_video_planning_feedback", "human_review", "视频批注包含表达或策划变更：查看原视频选区和意见，由 Promo 与作者调整对应计划，再交回 Cutbench；不得用局部剪辑代替内容决策。");
+  if (record.carrier === "video" && videoFeedback.annotations.some(a => a.status === "addressed")) return action("review_video_repairs", "human_review", "在视频工作台回看修改版并确认批注已解决；不满意则重新打开。旧版本批注不会自动搬到新时间位置。");
   if (record.state === "REQUIREMENTS_READY" && !record.context.requirementsExecutionReview) return action("submit_requirement_details", "agent_work", "细化正式 requirement_set：context.baseArtifactId + details[{requirementId,productionProcedure}]。Markdown 包含准备、步骤、每个 usageId 成品要求、验收、失败处理。可先存草稿；完成后提交 executionReview:{passed:true,evidence}，再请求人工审核。");
   if (record.state === "PRODUCING" && record.carrier === "article" && record.context.articleProductionArtifacts) {
     return action("review_article_preview", "commit", "审阅完整本地文章预览；确认后以 lock_production 提交 previewAccepted: true。任何硬约束或语义漂移需一并回填。");
@@ -2029,7 +2164,7 @@ function pendingActionForRecord(record: WorkflowRecord): PendingAction | null {
       if (isRecord(record.context.cutWorkbenchResult.finalGate) && record.context.cutWorkbenchResult.finalGate.passed === true) {
         return action("lock_video_production", "commit", "Cut Workbench 已返回验证结果；以 lock_production 锁定该项目版本和最终字幕。 ");
       }
-      return action("continue_cut_workbench_production", "agent_work", "在 Cut Workbench 完成九阶段生产、终剪字幕与交付验证；完成后再次调用 promo_run 同步最终项目版本。");
+      return action("continue_cut_workbench_production", "agent_work", "在 Cut Workbench 单制作节点依据 Promo 计划完成素材处理、实际预览检查、局部修改和人工复核；完成后调用 promo_run 同步当前视频版本。表达或素材计划需变化时返回 Promo。");
     }
   }
   return pendingActionFor(record.state);
@@ -2065,10 +2200,16 @@ function agentWorkFor(context: Record<string, unknown>) {
 function decorateAgentWork(
   work: WorkflowSnapshot["agentWork"] | undefined,
   scope: WorkspaceScope | undefined,
+  carrier: WorkflowCarrier,
 ): WorkflowSnapshot["agentWork"] | undefined {
-  if (!work || !scope) return work;
+  if (!work) return work;
+  const guidance = carrier === "article" && work.stage === "master_development"
+    ? createGuidanceRequest(["editorial-problem-router", "human-language-writing", "product-tweet-visual-proof"])
+    : work.guidance;
+  if (!scope) return { ...work, guidance };
   return {
     ...work,
+    guidance,
     inputs: { ...work.inputs, workspaceScope: scope },
     constraints: [
       ...new Set([
@@ -2656,8 +2797,10 @@ function readMasterReview(value: unknown, carrier: "video" | "article"): MasterR
   if (carrier === "article" && articleEditorial === null) {
     throw new Error("Article masterReview requires articleEditorial.");
   }
+  const editorialDiagnostic = readEditorialDiagnostic(value.editorialDiagnostic, carrier);
   return {
     passed: value.passed === true,
+    editorialDiagnostic,
     ...(value.audit === undefined ? {} : { audit: readAudit(value.audit)! }),
     evidenceBlockers: readStringArrayOrEmpty(value.evidenceBlockers, "masterReview.evidenceBlockers"),
     writingStyle: {
@@ -2670,6 +2813,63 @@ function readMasterReview(value: unknown, carrier: "video" | "article"): MasterR
     articleEditorial,
     assetEfficiencyFindings: readStringArrayOrEmpty(value.assetEfficiencyFindings, "masterReview.assetEfficiencyFindings"),
   };
+}
+
+function readEditorialDiagnostic(value: unknown, carrier: "video" | "article"): NonNullable<MasterReview["editorialDiagnostic"]> | null {
+  if (carrier === "video" && (value === undefined || value === null)) return null;
+  if (!isRecord(value) || value.scope !== "fixed-reading-checks") {
+    throw new Error("Article masterReview requires editorialDiagnostic from the fixed reading checks.");
+  }
+  const judgment = isRecord(value.judgment) ? value.judgment : null;
+  const recheck = isRecord(value.recheck) ? value.recheck : null;
+  if (!judgment || !recheck || !Array.isArray(value.repairs)) throw new Error("editorialDiagnostic requires judgment, repairs and recheck.");
+  const repairs = value.repairs.map((item, index) => {
+    if (!isRecord(item) || !EDITORIAL_ISSUE_CODES.includes(item.issueCode as EditorialIssueCode)) throw new Error(`Invalid editorialDiagnostic.repairs[${index}].`);
+    return {
+      issueCode: item.issueCode as EditorialIssueCode,
+      guidanceResourceId: requireText(item.guidanceResourceId, `editorialDiagnostic.repairs[${index}].guidanceResourceId`),
+      changedLocations: readStringArray(item.changedLocations, `editorialDiagnostic.repairs[${index}].changedLocations`),
+      beforeEvidence: readStringArray(item.beforeEvidence, `editorialDiagnostic.repairs[${index}].beforeEvidence`),
+      afterEvidence: readStringArray(item.afterEvidence, `editorialDiagnostic.repairs[${index}].afterEvidence`),
+    };
+  });
+  return {
+    scope: "fixed-reading-checks",
+    judgment: {
+      baseArtifactId: judgment.baseArtifactId === null ? null : requireText(judgment.baseArtifactId, "editorialDiagnostic.judgment.baseArtifactId"),
+      checks: readEditorialChecks(judgment.checks, "editorialDiagnostic.judgment.checks"),
+      triggeredIssueCodes: readEditorialIssueCodes(judgment.triggeredIssueCodes, "editorialDiagnostic.judgment.triggeredIssueCodes"),
+    },
+    repairs,
+    recheck: {
+      checks: readEditorialChecks(recheck.checks, "editorialDiagnostic.recheck.checks"),
+      unresolvedIssueCodes: readEditorialIssueCodes(recheck.unresolvedIssueCodes, "editorialDiagnostic.recheck.unresolvedIssueCodes"),
+    },
+  };
+}
+
+function readEditorialChecks(value: unknown, label: string): NonNullable<MasterReview["editorialDiagnostic"]>["judgment"]["checks"] {
+  if (!Array.isArray(value)) throw new Error(`${label} must be an array.`);
+  return value.map((item, index) => {
+    if (!isRecord(item) || !["paragraph_contribution", "adjacency_basis", "narrative_claims", "objection_targets", "reader_prerequisites"].includes(String(item.id)) || !["clear", "issue", "uncertain"].includes(String(item.status))) throw new Error(`Invalid ${label}[${index}].`);
+    return {
+      id: item.id as NonNullable<MasterReview["editorialDiagnostic"]>["judgment"]["checks"][number]["id"],
+      status: item.status as "clear" | "issue" | "uncertain",
+      evidence: requireText(item.evidence, `${label}[${index}].evidence`),
+      evidenceQuotes: readStringArray(item.evidenceQuotes, `${label}[${index}].evidenceQuotes`),
+      issueCodes: readEditorialIssueCodes(item.issueCodes, `${label}[${index}].issueCodes`),
+    };
+  });
+}
+
+function readEditorialIssueCodes(value: unknown, label: string): EditorialIssueCode[] {
+  if (!Array.isArray(value)) throw new Error(`${label} must be an array.`);
+  const codes = value.map((item) => {
+    if (!EDITORIAL_ISSUE_CODES.includes(item as EditorialIssueCode)) throw new Error(`${label} contains an unknown issue code.`);
+    return item as EditorialIssueCode;
+  });
+  if (new Set(codes).size !== codes.length) throw new Error(`${label} contains duplicate issue codes.`);
+  return codes;
 }
 
 function readArticleEditorialReview(value: unknown): NonNullable<MasterReview["articleEditorial"]> {
@@ -2744,7 +2944,7 @@ function createMasterRevisionBrief(
     validationRules: ["Set incorporatesDecisionIds to the decision id in latestDecision.", "Submit through promo_commit(kind=submit_master_draft)."],
     nextCommitKind: "submit_master_draft",
     guidance: createGuidanceRequest(creativeOutline.outline.carrier === "article"
-      ? ["human-language-writing", "promo-writing-supervision", "product-tweet-manuscript-proof", "product-tweet-visual-proof"]
+      ? ["editorial-problem-router", "human-language-writing", "product-tweet-visual-proof"]
       : ["human-language-writing", "promo-writing-supervision", "promo-storyboard-supervision", "product-voiceover-campaign", "promo-deliverable-exemplars", "tim-cinematic-video-proof-plan"]),
     decisionCard: {
       node: 4, label: "主稿修订", known: ["一个阻塞性场景选择已确认。"],

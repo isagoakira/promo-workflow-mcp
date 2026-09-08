@@ -5,6 +5,10 @@ export { createAgentWorkCapsule } from "./agent-work.js";
 export { createGuidanceRequest } from "./agent-work.js";
 export { GUIDANCE_IDS } from "./agent-work.js";
 export { loadGuidance } from "./guidance-catalog.js";
+export { EDITORIAL_ISSUE_CODES } from "./editorial-problem-guidance.js";
+export type { EditorialIssueCode } from "./editorial-problem-guidance.js";
+export { validateEditorialLoop } from "./editorial-loop.js";
+export type { EditorialLoopBase } from "./editorial-loop.js";
 export { createBaselineBrief, readBaselineProposal } from "./baseline.js";
 export {
   assertOutlineGrillCapacity,
@@ -111,3 +115,4 @@ export type {
   TopicSource,
   TopicSourceKind,
 } from "./selection/index.js";
+export * from './video-production.js';

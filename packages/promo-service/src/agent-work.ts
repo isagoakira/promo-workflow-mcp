@@ -43,6 +43,7 @@ export interface DeliverableTarget {
 }
 
 export const GUIDANCE_IDS = [
+  "editorial-problem-router",
   "human-language-writing",
   "promo-writing-supervision",
   "product-tweet-article-contract",
@@ -135,6 +136,8 @@ function uniqueGuidanceIds(ids: readonly GuidanceId[]): GuidanceId[] {
 
 function toPolicy(id: GuidanceId): GuidancePolicy {
   switch (id) {
+    case "editorial-problem-router":
+      return { id, plugin: "promo-product-tweet-editor", priority: "high", overview: "先做固定阅读检查，再按具体问题码加载少量修复指导；不让写作者自行决定是否检查。", loadWhen: "推文 N4 初稿、实质修订与主稿审校；先单独加载本指导完成发现阶段。" };
     case "human-language-writing":
       return { id, plugin: "promo-human-language-writing", priority: "high", overview: "先找回具体的人、处境、细节和判断，再修复四类 AI 八股；不凭空增加事实。", loadWhen: "所有中文宣发的宣传意图、创意大纲、口播/推文主稿、标题简介与修订。" };
     case "promo-writing-supervision":

@@ -1,0 +1,55 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { videoReviewFor, mergeVideoPreviews, changeVideoAnnotation, validateSelections } from "../dist/video-review.js";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { JsonWorkflowStore, ArtifactStore, WorkflowService } from "../dist/index.js";
+const preview = (id) => ({ previewId: id, artifactId: `artifact:${id}`, sha256: "a".repeat(64), locator: `/tmp/${id}.mp4`, durationMs: 10000, sourceRevision: 1, planVersion: "plan1" });
+const create = (state, extra = {}) => changeVideoAnnotation(state, { action: "create", previewId: "v1", sha256: "a".repeat(64), selections: [{ startMs: 100, endMs: 100 }, { startMs: 1000, endMs: 2000, region: { x: .1, y: .2, width: .3, height: .4 } }], text: "放大结果", intent: "production_change", unitIds: ["unit1"], ...extra }, ["unit1"]);
+test("multi-range anchors remain bound to immutable source while a human reviews replacement", () => {
+  let state = create(mergeVideoPreviews(videoReviewFor(), [preview("v1")], "v1"));
+  const first = state.annotations[0];
+  state = mergeVideoPreviews(state, [preview("v2")], "v2");
+  assert.equal(state.annotations[0].previewId, "v1");
+  assert.throws(() => create(state), /current video/);
+  state = changeVideoAnnotation(state, { action: "address", annotationId: first.id, expectedAnnotationRevision: 1, targetPreviewId: "v2", reply: "已放大" }, []);
+  assert.equal(state.annotations[0].status, "addressed");
+  assert.throws(() => changeVideoAnnotation(state, { action: "resolve", annotationId: first.id, expectedAnnotationRevision: 2, targetPreviewId: "v2", actor: "agent" }, []), /Human/);
+  state = changeVideoAnnotation(state, { action: "resolve", annotationId: first.id, expectedAnnotationRevision: 2, targetPreviewId: "v2", actor: "human" }, []);
+  assert.equal(state.annotations[0].status, "resolved");
+  assert.equal(state.history.length, 3);
+  state = changeVideoAnnotation(state, { action: "reopen", annotationId: first.id, expectedAnnotationRevision: 3, actor: "human" }, []);
+  assert.equal(state.annotations[0].status, "open");
+});
+test("invalid temporal/spatial coordinates, units, hashes and mutable preview IDs are rejected", () => {
+  const state = mergeVideoPreviews(videoReviewFor(), [preview("v1")], "v1");
+  for (const selections of [[{ startMs: -1, endMs: 2 }], [{ startMs: 2, endMs: 1 }], [{ startMs: 1, endMs: 10001 }], [{ startMs: 0, endMs: 1, region: { x: .9, y: 0, width: .2, height: 1 } }]]) assert.throws(() => validateSelections(selections, 10000));
+  assert.throws(() => create(state, { unitIds: ["alien"] }), /Unknown production/);
+  assert.throws(() => create(state, { sha256: "b".repeat(64) }), /stale/);
+  assert.throws(() => mergeVideoPreviews(state, [{ ...preview("v1"), sha256: "b".repeat(64) }], "v1"), /Immutable/);
+});
+test("new preview cannot be approved by an older addressed receipt", () => {
+  let state = create(mergeVideoPreviews(videoReviewFor(), [preview("v1")], "v1"));
+  const id = state.annotations[0].id;
+  state = mergeVideoPreviews(state, [preview("v2")], "v2");
+  state = changeVideoAnnotation(state, { action: "address", annotationId: id, expectedAnnotationRevision: 1, targetPreviewId: "v2", reply: "fix" }, []);
+  state = mergeVideoPreviews(state, [preview("v3")], "v3");
+  assert.throws(() => changeVideoAnnotation(state, { action: "resolve", annotationId: id, expectedAnnotationRevision: 2, targetPreviewId: "v2", actor: "human" }, []), /current replacement/);
+});
+test("service persists exact anchors, guards concurrent revisions, deduplicates retries and invalidates cached gate", async () => {
+  const root = await mkdtemp(join(tmpdir(), "promo-video-review-"));
+  const store = new JsonWorkflowStore(join(root, "store.json"));
+  const artifacts = new ArtifactStore(join(root, "artifacts"));
+  const now = new Date().toISOString();
+  await store.write({ schemaVersion: 1, workflows: { wf: { id: "wf", carrier: "video", state: "PRODUCING", revision: 1, createdAt: now, updatedAt: now, summary: "fixture", context: { productionUnits: [{ id: "unit1" }], cutWorkbenchResult: { finalGate: { passed: true } } }, events: [], idempotency: {}, videoReview: mergeVideoPreviews(videoReviewFor(), [preview("v1")], "v1") } } });
+  const service = new WorkflowService(store, artifacts);
+  const input = { workflowId: "wf", expectedRevision: 1, idempotencyKey: "one", action: "create", previewId: "v1", sha256: "a".repeat(64), selections: [{ startMs: 2, endMs: 2 }], text: "此处停顿", intent: "production_change", unitIds: ["unit1"] };
+  const saved = await service.videoAnnotate(input);
+  assert.equal(saved.revision, 2);
+  assert.equal((await service.videoAnnotate(input)).annotations.length, 1);
+  assert.equal((await store.read()).workflows.wf.context.cutWorkbenchResult.finalGate.passed, false);
+  assert.deepEqual((await new WorkflowService(store, artifacts).videoReview("wf")).annotations, saved.annotations);
+  await assert.rejects(service.videoAnnotate({ ...input, idempotencyKey: "two" }), /revision conflict/);
+  await assert.rejects(service.videoAnnotate({ ...input, text: "different" }), /idempotency conflict/);
+});

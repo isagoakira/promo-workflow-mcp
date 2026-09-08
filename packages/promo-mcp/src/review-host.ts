@@ -2,6 +2,12 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { randomUUID } from "node:crypto";
 import { ArtifactStore, JsonWorkflowStore, WorkflowService, WorkspaceDeliverables } from "@promo-workflow/service";
 import { TEXT_REVIEW_JS } from "./text-review-client.js";
+import { VIDEO_REVIEW_JS } from "./video-review-client.js";
+import { VIDEO_PRODUCTION_JS } from './video-production-client.js';
+import { readableTaskBrief } from './task-brief.js';
+import { ProjectRegistry, defaultRegistryPath } from './project-registry.js';
+import { PROJECT_REGISTRY_JS } from './project-registry-client.js';
+import { serveVideoMedia } from "./video-media.js";
 import { readFile } from "node:fs/promises";
 import { watch, type FSWatcher } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
@@ -10,6 +16,7 @@ type JsonRecord = Record<string, unknown>;
 
 interface ReviewHostOptions {
   dataDirectory: string;
+  registry?: ProjectRegistry;
   host?: string | undefined;
   port?: number | undefined;
 }
@@ -57,14 +64,21 @@ const STEPS = [
 ] as const;
 
 /**
- * Read-only local review server. It deliberately serves only paths already
- * projected into a workflow's own workspace and never exposes the parent data
- * directory as static files.
+ * Local review server. Read surfaces use workflow-scoped artifacts and registered
+ * media; annotation writes require a same-origin session token. No directory is static.
  */
 export function createReviewHost(options: ReviewHostOptions): Server {
   const dataDirectory = resolve(options.dataDirectory);
   const artifacts = new ArtifactStore(join(dataDirectory, "artifacts"));
   const service = new WorkflowService(new JsonWorkflowStore(join(dataDirectory, "workflows.json")), artifacts, undefined, undefined, undefined, new WorkspaceDeliverables(join(dataDirectory, "workspace"), artifacts));
+  const services = new Map<string, WorkflowService>([[dataDirectory, service]]);
+  const serviceAt = (directory: string) => {
+    if (!services.has(directory)) {
+      const store = new ArtifactStore(join(directory, 'artifacts'));
+      services.set(directory, new WorkflowService(new JsonWorkflowStore(join(directory, 'workflows.json')), store, undefined, undefined, undefined, new WorkspaceDeliverables(join(directory, 'workspace'), store)));
+    }
+    return services.get(directory)!;
+  };
   const writeToken = randomUUID();
   const subscribers = new Set<ServerResponse>();
   let notifyTimer: NodeJS.Timeout | undefined;
@@ -87,6 +101,51 @@ export function createReviewHost(options: ReviewHostOptions): Server {
   const server = createServer(async (request, response) => {
     try {
       const url = new URL(request.url ?? "/", "http://127.0.0.1");
+      if (url.pathname === '/project-registry.js') return sendText(response, PROJECT_REGISTRY_JS, 'text/javascript; charset=utf-8');
+      if (url.pathname === '/api/projects') {
+        if (!/^((127\.0\.0\.1|localhost)(:\d+)?|\[::1\](:\d+)?)$/.test(request.headers.host ?? '') || (request.headers['sec-fetch-site'] && !['same-origin', 'none'].includes(String(request.headers['sec-fetch-site'])))) return sendJson(response, { error: 'Local same-origin session required.' }, 403);
+        if (request.method !== 'GET') return sendJson(response, { error: 'Method not allowed.' }, 405);
+        const check = options.registry ? await options.registry.scan() : { checkedAt: new Date().toISOString(), projects: [] };
+        return sendJson(response, { ...check, projects: check.projects.map(p => ({ ...p, workflows: p.workflows.map(w => ({ ...w, progress: progressForState(w.state) })) })) });
+      }
+      const scopedId = /^\/api\/workflows\/([A-Za-z0-9_-]+)(?:\/|$)/.exec(url.pathname)?.[1];
+      const scopedDirectory = options.registry && scopedId ? await options.registry.locate(scopedId) : dataDirectory;
+      const service = serviceAt(scopedDirectory);
+      if (url.pathname === '/video-production.js') return sendText(response, VIDEO_PRODUCTION_JS, 'text/javascript; charset=utf-8');
+      const productionMatch = /^\/api\/workflows\/([A-Za-z0-9_-]+)\/video-production$/.exec(url.pathname);
+      if (productionMatch?.[1]) {
+        if (!/^((127\.0\.0\.1|localhost)(:\d+)?|\[::1\](:\d+)?)$/.test(request.headers.host ?? '') || (request.headers['sec-fetch-site'] && !['same-origin','none'].includes(String(request.headers['sec-fetch-site'])))) return sendJson(response, { error: 'Local same-origin session required.' }, 403);
+        if (request.method === 'GET') return sendJson(response, await service.videoProduction(productionMatch[1]));
+        if (request.method !== 'POST') return sendJson(response, { error: 'Method not allowed.' }, 405);
+        if (request.headers.origin !== `http://${request.headers.host}` || request.headers['x-promo-token'] !== writeToken || !request.headers['content-type']?.startsWith('application/json')) return sendJson(response, { error: 'Invalid local write session.' }, 403);
+        let body = ''; for await (const chunk of request) { body += String(chunk); if (Buffer.byteLength(body) > 100000) return sendJson(response, { error: 'Request too large.' }, 413); }
+        const payload = asRecord(JSON.parse(body));
+        if (!payload || !['start','approve','rework','return_planning','resume'].includes(String(payload.action))) return sendJson(response, { error: 'Unsupported human production action.' }, 400);
+        const result = await service.updateVideoProduction({ ...payload, workflowId: productionMatch[1] }, 'human'); notify(); return sendJson(response, result);
+      }
+      if (url.pathname === "/video-review.js") return sendText(response, VIDEO_REVIEW_JS, "text/javascript; charset=utf-8");
+      const videoMatch = /^\/api\/workflows\/([A-Za-z0-9_-]+)\/(video-review|video-annotations|video-media\/([A-Za-z0-9_-]+))$/.exec(url.pathname);
+      if (videoMatch?.[1]) {
+        if (!/^((127\.0\.0\.1|localhost)(:\d+)?|\[::1\](:\d+)?)$/.test(request.headers.host ?? "") || (request.headers["sec-fetch-site"] && !["same-origin", "none"].includes(String(request.headers["sec-fetch-site"])))) return sendJson(response, { error: "Local same-origin session required." }, 403);
+        const workflowId = videoMatch[1];
+        if (videoMatch[2] === "video-review" && request.method === "GET") return sendJson(response, await service.videoReview(workflowId));
+        if (videoMatch[3] && (request.method === "GET" || request.method === "HEAD")) {
+          const view = await service.videoReview(workflowId);
+          const preview = view.previews.find(item => item.previewId === videoMatch[3]);
+          if (!preview) return sendJson(response, { error: "Preview not registered to this workflow." }, 404);
+          return await serveVideoMedia(request, response, preview);
+        }
+        if (videoMatch[2] !== "video-annotations" || request.method !== "POST") return sendJson(response, { error: "Method not allowed." }, 405);
+        if (request.headers.origin !== `http://${request.headers.host}` || request.headers["x-promo-token"] !== writeToken || !request.headers["content-type"]?.startsWith("application/json")) return sendJson(response, { error: "Invalid local write session." }, 403);
+        let body = "";
+        for await (const chunk of request) { body += String(chunk); if (Buffer.byteLength(body) > 100000) return sendJson(response, { error: "Annotation too large." }, 413); }
+        const payload = asRecord(JSON.parse(body));
+        if (!payload) return sendJson(response, { error: "Expected annotation object." }, 400);
+        if (payload.action !== "create" && payload.action !== "resolve" && payload.action !== "reopen") return sendJson(response, { error: "This surface only creates or reviews annotations." }, 400);
+        const result = await service.videoAnnotate({ ...payload, workflowId, actor: "human" });
+        notify();
+        return sendJson(response, result);
+      }
       if (url.pathname === "/text-review.js") return sendText(response, TEXT_REVIEW_JS, "text/javascript; charset=utf-8");
       if (url.pathname === "/api/text-session") {
         if (!/^((127\.0\.0\.1|localhost)(:\d+)?|\[::1\](:\d+)?)$/.test(request.headers.host ?? "")) return sendJson(response, { error: "Local host required." }, 403);
@@ -107,11 +166,19 @@ export function createReviewHost(options: ReviewHostOptions): Server {
       }
       if (url.pathname === "/api/updates") return subscribe(request, response, subscribers);
       if (url.pathname === "/api/workflows") {
+        if (options.registry) {
+          const locations = await options.registry.locations();
+          const result: WorkflowSummary[] = [];
+          for (const directory of new Set([...locations.values()].filter(paths => paths.length === 1).map(paths => paths[0]!))) {
+            result.push(...(await listWorkflows(directory)).filter(w => locations.get(w.workflowId)?.length === 1 && locations.get(w.workflowId)?.[0] === directory));
+          }
+          return sendJson(response, result);
+        }
         return sendJson(response, await listWorkflows(dataDirectory));
       }
       const workflowMatch = /^\/api\/workflows\/([A-Za-z0-9_-]+)$/.exec(url.pathname);
       if (workflowMatch?.[1]) {
-        return sendJson(response, await readWorkflowReview(dataDirectory, workflowMatch[1]));
+        return sendJson(response, await readWorkflowReview(scopedDirectory, workflowMatch[1]));
       }
       if (url.pathname === "/" || url.pathname === "/index.html") return sendText(response, INDEX_HTML, "text/html; charset=utf-8");
       if (url.pathname === "/review.css") return sendText(response, REVIEW_CSS, "text/css; charset=utf-8");
@@ -119,6 +186,7 @@ export function createReviewHost(options: ReviewHostOptions): Server {
       return sendText(response, "Not found", "text/plain; charset=utf-8", 404);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      if (response.headersSent) { response.destroy(); return; }
       return sendJson(response, { error: message }, 500);
     }
   });
@@ -165,8 +233,12 @@ async function listWorkflows(dataDirectory: string): Promise<WorkflowSummary[]> 
 
 async function readWorkflowReview(dataDirectory: string, workflowId: string): Promise<JsonRecord> {
   const workspaceRoot = resolve(dataDirectory, "workspace", workflowId);
-  const manifest = asRecord(await readJson(join(workspaceRoot, "manifest.json")));
-  if (!manifest) throw new Error("工作流审核台缺少 manifest.json。请先让 Promo Workflow 同步工作区制品。");
+  const savedWorkflow = (await listWorkflows(dataDirectory)).find(item => item.workflowId === workflowId);
+  const manifest = asRecord(await readJson(join(workspaceRoot, "manifest.json")).catch(error => {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw error;
+  })) ?? (savedWorkflow ? { ...savedWorkflow, deliverables: [] } : null);
+  if (!manifest) throw new Error("没有找到流程状态或工作区制品记录，请检查工程登记。");
 
   const workflow = (await listWorkflows(dataDirectory)).find((item) => item.workflowId === workflowId) ?? {
     workflowId,
@@ -180,15 +252,28 @@ async function readWorkflowReview(dataDirectory: string, workflowId: string): Pr
     progress: progressForState(text(manifest.state) ?? "UNKNOWN"),
   };
   const deliverables = array(manifest.deliverables) ?? [];
-  const artifacts = await Promise.all(deliverables.map(async (value) => readArtifact(workspaceRoot, asRecord(value))));
+  const projectionRoot = projectedWorkspaceRoot(manifest, workflowId);
   const record = asRecord(asRecord(await readJson(join(dataDirectory, "workflows.json")))?.workflows);
   const workflowRecord = asRecord(record?.[workflowId]);
+  const artifactRefs = array(asRecord(workflowRecord?.context)?.artifactRefs) ?? [];
+  // Workspace projections are useful for legacy review bundles, but they can
+  // lag behind a durable commit. The workflow's artifact references are the
+  // current source of truth for an active revision.
+  const referencedArtifacts = await Promise.all(artifactRefs.map(value => readStoredArtifact(dataDirectory, asRecord(value))));
+  const projectedArtifacts = await Promise.all(deliverables.map(async (value) => readArtifact([workspaceRoot, projectionRoot], asRecord(value))));
+  const artifacts = referencedArtifacts.some((artifact) => artifact !== null)
+    ? latestArtifactsByKind(referencedArtifacts.filter((artifact): artifact is ReviewArtifact => artifact !== null), artifactRefs)
+    : projectedArtifacts;
   const agentWork = agentWorkBrief(workflowId, workflow.revision, asRecord(asRecord(workflowRecord?.context)?.agentWork));
+  if (agentWork) agentWork.content = {
+    stage: asRecord(agentWork.content)?.stage,
+    ...readableTaskBrief(workflow.progress.node, workflow.carrier, asRecord(workflowRecord?.videoProduction)),
+  };
 
   const steps: ReviewStep[] = STEPS.map((step) => {
     const stepArtifacts = collapseSupersededDrafts(
       artifacts.filter((artifact): artifact is ReviewArtifact => artifact !== null && step.kinds.includes(artifact.kind as never)),
-      (array(asRecord(workflowRecord?.context)?.artifactRefs) ?? []).map(ref => text(asRecord(ref)?.artifactId) ?? ""),
+      artifactRefs.map(ref => text(asRecord(ref)?.artifactId) ?? ""),
     );
     const visibleArtifacts = step.node === workflow.progress.node && stepArtifacts.length === 0 && agentWork
       ? [agentWork]
@@ -206,11 +291,44 @@ async function readWorkflowReview(dataDirectory: string, workflowId: string): Pr
 
   return {
     workflow,
+    videoProduction: workflowRecord?.videoProduction ?? null,
     steps,
     control,
     events: array(workflowRecord?.events) ?? [],
     reviewMode: workflow.state === "AWAITING_HUMAN_REVIEW",
   };
+}
+
+/** Read a committed artifact only by its declared immutable ID, never by a client path. */
+async function readStoredArtifact(dataDirectory: string, reference: JsonRecord | null): Promise<ReviewArtifact | null> {
+  const artifactId = text(reference?.artifactId);
+  if (!artifactId || !/^artifact_[A-Za-z0-9-]+$/.test(artifactId)) return null;
+  const stored = asRecord(await readJson(join(dataDirectory, "artifacts", `${artifactId}.json`)));
+  if (!stored || text(stored.artifactId) !== artifactId) return null;
+  const kind = text(stored.kind);
+  if (!kind || stored.content === undefined) return null;
+  return { artifactId, kind, content: stored.content };
+}
+
+/** The review surface needs the newest current artifact of each kind, not every historical draft. */
+function latestArtifactsByKind(artifacts: readonly ReviewArtifact[], references: readonly unknown[]): ReviewArtifact[] {
+  const positions = new Map(references.map((ref, index) => [text(asRecord(ref)?.artifactId) ?? "", index]));
+  const latest = new Map<string, ReviewArtifact>();
+  for (const artifact of artifacts) {
+    const current = latest.get(artifact.kind);
+    if (!current || (positions.get(artifact.artifactId) ?? -1) >= (positions.get(current.artifactId) ?? -1)) latest.set(artifact.kind, artifact);
+  }
+  return artifacts.filter((artifact) => latest.get(artifact.kind)?.artifactId === artifact.artifactId);
+}
+
+/**
+ * Older workflows can project into the service data directory; project-bound
+ * workflows write to <declared project root>/workspace/<workflow id>. Both
+ * remain constrained to this one workflow's own directory.
+ */
+function projectedWorkspaceRoot(manifest: JsonRecord, workflowId: string): string | null {
+  const rootDirectory = text(manifest.rootDirectory);
+  return rootDirectory ? resolve(rootDirectory, "workspace", workflowId) : null;
 }
 
 function collapseSupersededDrafts(artifacts: readonly ReviewArtifact[], order: string[] = []): ReviewArtifact[] {
@@ -284,12 +402,12 @@ function progressForState(state: string): WorkflowProgress {
   return progress[state] ?? { node: 1, label: "选题与证据", detail: "等待流程同步", terminal: false };
 }
 
-async function readArtifact(workspaceRoot: string, deliverable: JsonRecord | null): Promise<ReviewArtifact | null> {
+async function readArtifact(workspaceRoots: readonly (string | null)[], deliverable: JsonRecord | null): Promise<ReviewArtifact | null> {
   if (!deliverable) return null;
   const artifactId = text(deliverable.artifactId);
   const kind = text(deliverable.kind);
   const path = text(deliverable.path);
-  if (!artifactId || !kind || !path || !isInside(workspaceRoot, path)) return null;
+  if (!artifactId || !kind || !path || !workspaceRoots.some((root) => root !== null && isInside(root, path))) return null;
   if (path.endsWith(".md")) return { artifactId, kind, content: await readFile(path, "utf8") };
   const artifact = asRecord(await readJson(path));
   return { artifactId, kind, content: artifact?.content ?? artifact };
@@ -361,11 +479,15 @@ const INDEX_HTML = `<!doctype html>
       <div class="toolbar">
         <span id="live-indicator" class="live-indicator">正在连接</span>
         <button id="refresh" type="button">刷新制品</button>
+        <button id="video-review-open" type="button" data-video-review hidden>视频审片与批注</button>
       </div>
     </header>
     <main id="app" aria-live="polite"><div class="loading">正在铺开审核链路…</div></main>
     <script src="/text-review.js"></script>
+    <script src="/video-review.js"></script>
+    <script src="/video-production.js"></script>
     <script src="/review.js"></script>
+    <script src="/project-registry.js"></script>
   </body>
 </html>`;
 
@@ -407,10 +529,10 @@ function keyFields(obj, keys) { return keys.filter(key => obj[key] !== undefined
 function renderValue(value) { if (Array.isArray(value)) return '<ul class="list">'+value.map(item => '<li>'+renderValue(item)+'</li>').join('')+'</ul>'; if (isObj(value)) return '<p>'+esc(value.title || value.name || value.summary || '这项信息已记录在制品中。')+'</p>'; return esc(value); }
 function renderRoutes(routes) { return '<div class="route-grid">'+routes.map(route => '<div class="route"><strong>'+esc(route.name || route.id || '候选路线')+'</strong><span>'+esc(route.centralTension || route.summary || route.whyThisRoute || '')+'</span></div>').join('')+'</div>'; }
 function renderOutline(value) { const outline=value.outline||value; const sections=outline.sections||[]; return '<p class="lead">'+esc(outline.openingDirection||value.creativeSpine?.creativePremise||'')+'</p><h4>文章的推进</h4>'+sections.map((section,index)=>'<div class="route"><strong>第 '+(index+1)+' 段：'+esc(section.sectionPurpose||'')+'</strong>'+keyFields(section,['sceneOrAction','content','readerShift','visualAsset','avoid'])+'</div>').join('')+'<h4>收束与行动</h4>'+keyFields(outline,['ending','primaryCallToAction','unsupportedClaims']); }
-function renderMasterReview(value) { const review=value.review||{}; const groups=[['证据问题',review.evidenceBlockers],['文风与结构',review.writingStyle?.findings],['读者与证据链',review.articleEditorial?.findings],['素材可行性',review.assetEfficiencyFindings]]; return '<p class="lead">'+(review.passed?(review.audit?'编辑审计通过；仍需人工决定。':'历史通过记录，未附新版验证依据。'):'未通过或尚未验证；草稿可继续审阅。')+'</p>'+groups.filter(([,items])=>items?.length).map(([title,items])=>'<h4>'+title+'</h4>'+renderValue(items)).join('')+(review.audit?'<h4>版本与复核依据</h4><div class="markdown">'+esc(JSON.stringify(review.audit,null,2))+'</div>':''); }
+function renderMasterReview(value) { const review=value.review||{}; const diagnostic=review.editorialDiagnostic||{},judgment=diagnostic.judgment||{},recheck=diagnostic.recheck||{}; const groups=[['初次判断',judgment.checks],['触发问题',judgment.triggeredIssueCodes],['逐项修复',diagnostic.repairs],['复审结果',recheck.checks],['仍未解决',recheck.unresolvedIssueCodes],['证据问题',review.evidenceBlockers],['文风与结构',review.writingStyle?.findings],['读者与证据链',review.articleEditorial?.findings],['素材可行性',review.assetEfficiencyFindings]]; return '<p class="lead">'+(review.passed?(review.audit?'编辑审计通过；仍需人工决定。':'历史通过记录，未附新版验证依据。'):'未通过或尚未验证；草稿可继续审阅。')+'</p>'+groups.filter(([,items])=>items?.length).map(([title,items])=>'<h4>'+title+'</h4>'+renderValue(items)).join('')+(review.audit?'<h4>版本与复核依据</h4><div class="markdown">'+esc(JSON.stringify(review.audit,null,2))+'</div>':''); }
 function renderRequirements(value) { const requirements=value.requirements||[]; return '<p class="lead">需要补齐 '+requirements.length+' 组能够证明正文判断的素材。</p>'+requirements.map((item,index)=>'<div class="route"><strong>素材 '+(index+1)+'</strong>'+keyFields(item,['materialType','constraints'])+'<div class="field"><dt>这些画面要证明什么</dt><dd>'+renderValue((item.usages||[]).map(usage=>usage.usageId+'：'+usage.purpose).filter(Boolean))+'</dd></div><h4>采集协议</h4><div class="markdown">'+esc(item.captureProtocol?JSON.stringify(item.captureProtocol,null,2):'未提供')+'</div><h4>制作流程</h4><div class="markdown">'+esc(item.productionProcedure||'尚待细化')+'</div></div>').join(''); }
 function renderProduction(value) { const gaps=value.capabilityGaps||[]; const units=value.units||[]; return '<p class="lead">制作将按 '+units.length+' 个单元推进。</p>'+(gaps.length?'<h4>开工前要处理的缺口</h4>'+renderValue(gaps):'<p>当前没有记录额外制作能力缺口。</p>'); }
-function artifactBody(artifact) { const value = artifact.content; if (typeof value === 'string') return '<div class="markdown">'+esc(value.replace(/^# .*$/m,'').trim())+'</div>'; if (!isObj(value)) return '<p>'+renderValue(value)+'</p>'; if (artifact.kind === 'agent_work_brief') return '<p class="lead">'+esc(value.status||'等待正式交付物。')+'</p>'+keyFields(value.requestedOutput||{},['description','fields'])+'<h4>执行边界</h4>'+keyFields(value,['constraints','validationRules','nextCommitKind']); if (artifact.kind === 'baseline' || artifact.kind === 'baseline_draft') { const campaign=value.campaignIntent||{}, editorial=value.articleEditorialIntent||{}; return '<p class="lead">'+esc(value.coreMessage||'')+'</p><h4>引导读者完成什么</h4>'+keyFields(value,['guidanceIntent'])+'<h4>传播判断</h4>'+keyFields(campaign,['audienceMoment','immediateBenefit','longTermBenefit','beliefToChange','proofToShow','evidenceBoundary','primaryCallToAction'])+'<h4>编辑基调</h4>'+keyFields(editorial,['readerDecision','humanCenter','authorStance','warmThread','emotionalArc']); }
+function artifactBody(artifact) { const value = artifact.content; if (typeof value === 'string') return '<div class="markdown">'+esc(value.replace(/^# .*$/m,'').trim())+'</div>'; if (!isObj(value)) return '<p>'+renderValue(value)+'</p>'; if (artifact.kind === 'agent_work_brief') return '<p class="lead">'+esc(value.status||'等待正式交付物。')+'</p>'+[['现在做什么',value.doing],['会交给你什么',value.output],['你需要检查什么',value.check]].map(([label,body])=>'<h4>'+esc(label)+'</h4><p>'+esc(body||'等待本步任务安排。')+'</p>').join(''); if (artifact.kind === 'baseline' || artifact.kind === 'baseline_draft') { const campaign=value.campaignIntent||{}, editorial=value.articleEditorialIntent||{}; return '<p class="lead">'+esc(value.coreMessage||'')+'</p><h4>引导读者完成什么</h4>'+keyFields(value,['guidanceIntent'])+'<h4>传播判断</h4>'+keyFields(campaign,['audienceMoment','immediateBenefit','longTermBenefit','beliefToChange','proofToShow','evidenceBoundary','primaryCallToAction'])+'<h4>编辑基调</h4>'+keyFields(editorial,['readerDecision','humanCenter','authorStance','warmThread','emotionalArc']); }
  if (artifact.kind === 'creative_routes') return '<p class="lead">从候选中选出一条可证明、可推进的路线。</p>'+renderRoutes(value.routes||[]);
  if (artifact.kind === 'creative_route_selection') return '<p class="lead">'+esc(value.route?.name || '已锁定路线')+'</p>'+keyFields(value.route||value,['centralTension','openingScene','proofMethod','readerShift','whyThisRoute']);
  if (artifact.kind === 'selected_topic') return '<p class="lead">'+esc(value.topic?.title||'')+'</p>'+keyFields(value.topic||value,['source','excerpt','rationale'])+keyFields(value,['selectedMaterials']);
@@ -419,7 +541,7 @@ function artifactBody(artifact) { const value = artifact.content; if (typeof val
  if (artifact.kind === 'competition_report') return '<p class="lead">主推荐方案已选出。</p>'+keyFields(value,['recommendationRationale'])+renderRoutes(value.candidates||[]);
  const master=value.master||value; if ((artifact.kind==='content_master'||artifact.kind==='content_master_draft') && master.bodyMarkdown) return '<h3>'+esc(master.title||master.workingTitle||'主稿')+'</h3><div class="markdown">'+esc(master.bodyMarkdown)+'</div>';
  if (artifact.kind === 'creative_outline' || artifact.kind === 'creative_outline_draft' || artifact.kind === 'outline_script') return renderOutline(value);
- if (artifact.kind === 'master_review') return renderMasterReview(value);
+ if (artifact.kind === 'master_review') { const p=value.videoPreview; const video=p&&typeof p.previewId==='string'?'<h4>'+esc(p.title||'视频审校样片')+'</h4><video controls preload="metadata" style="width:100%;max-height:460px;background:#111" src="/api/workflows/'+encodeURIComponent(new URLSearchParams(location.search).get('workflowId')||'')+'/video-media/'+encodeURIComponent(p.previewId)+'"></video><p><button type="button" data-video-review>打开视频批注</button></p>':''; return video+renderMasterReview(value); }
  if (artifact.kind === 'requirement_set' || artifact.kind === 'preproduction_material_plan') return renderRequirements(value);
  if (artifact.kind === 'production_plan') return renderProduction(value);
  return '<p>这份制品已纳入流程记录；其中没有会改变本轮审核决定的独立内容。</p>'; }
@@ -440,10 +562,14 @@ function renderWorkbenchNavigator() { const visible = workbenchWorkflows.filter(
 function bindWorkbenchNavigator() { document.querySelectorAll('[data-carrier]').forEach(button => button.addEventListener('click', () => { activeCarrier = button.dataset.carrier; const first = workbenchWorkflows.find(item => item.carrier === activeCarrier); if (first) selectWorkflow(first.workflowId); else renderUnified(data); })); document.querySelectorAll('[data-workflow-id]').forEach(button => button.addEventListener('click', () => selectWorkflow(button.dataset.workflowId))); }
 function renderUnified(review) { data = review; const workflow = review.workflow; const progress = workflow.progress || { node:1,label:'选题与证据',detail:'等待流程同步',terminal:false }; const rail = review.steps.map(step => '<button class="'+step.state+'" data-scroll="step-'+step.node+'"><b>'+step.node+'</b><span>'+esc(step.label)+'</span></button>').join(''); const timeline = review.steps.map(step => '<section id="step-'+step.node+'" class="step"><div class="step-title"><h2>'+esc(step.label)+'</h2><span class="state '+step.state+'">'+({complete:'已完成',current:'当前进行中',pending:'尚未开始'}[step.state])+'</span></div>'+(step.artifacts.length ? step.artifacts.map((item,index) => artifact(item,index===0)).join('') : '<div class="placeholder">此节点尚未产生可审核制品。</div>')+'</section>').join(''); const events = (review.events||[]).slice().reverse().map(event => '<div class="event"><time>第 '+esc(event.revision)+' 次更新</time><p>'+esc(event.summary||'流程已更新')+'</p></div>').join('') || '<p>暂无事件记录。</p>'; app.innerHTML='<div class="page">'+renderWorkbenchNavigator()+'<section class="hero"><div><div class="eyebrow">'+esc(carrierLabel(workflow.carrier))+'工作流 · '+esc(workflow.rootDirectory || '未指定根目录')+'</div><h1>'+esc(workflow.displayName || '未命名工作流')+'</h1><p class="hero-summary">'+esc(workflow.summary || '从一个点子到可执行发布，顺着七个节点检查这条内容是否值得进入下一步。')+'</p><div class="meta"><span>第 '+esc(progress.node)+' / 7 步 · '+esc(progress.label)+'</span><span>'+esc(reviewState(review))+'</span><span>当前版本 r'+esc(workflow.revision)+'</span></div></div><aside class="review-card"><div class="label">CURRENT PROGRESS</div><p>'+esc(progress.detail)+'</p><small>'+ (review.reviewMode ? '前序链路已冻结，重点判断：主张是否成立、证据是否够用、素材是否真正能证明它。' : '收到新的工作流事件后，页面会自动按节点顺序刷新。') +'</small></aside></section><section class="review-board"><nav class="rail" aria-label="审核节点">'+rail+'</nav><div class="timeline">'+timeline+'</div><aside class="side"><div class="side-card"><h3>决定方式</h3><div class="rule"><strong>保留人工门禁</strong>批准、退回或拒绝必须由 Agent 经 promo_commit 绑定当前 revision 提交。</div></div><div class="side-card"><div class="side-heading"><h3>近期流程</h3><div class="event-controls"><button type="button" data-event-scroll="up" aria-label="向上查看近期流程">↑</button><button type="button" data-event-scroll="down" aria-label="向下查看近期流程">↓</button></div></div><div id="event-feed" class="event-feed">'+events+'</div></div></aside></section></div>'; document.querySelectorAll('[data-scroll]').forEach(button => button.addEventListener('click', () => document.getElementById(button.dataset.scroll)?.scrollIntoView({behavior:'smooth',block:'start'}))); document.querySelectorAll('[data-event-scroll]').forEach(button => button.addEventListener('click', () => document.getElementById('event-feed')?.scrollBy({top:button.dataset.eventScroll === 'up' ? -150 : 150,behavior:'smooth'}))); bindWorkbenchNavigator(); }
 async function selectWorkflow(id, silent=false) { selectedWorkflowId = id; const item = workbenchWorkflows.find(workflow => workflow.workflowId === id); if (item) activeCarrier = item.carrier; history.replaceState(null,'','?workflowId='+encodeURIComponent(id)); await unifiedLoad(id, silent); }
-async function unifiedLoad(id, silent=false) { if(window.promoTextReviewOpen || (silent && window.getSelection()?.toString())) { window.dispatchEvent(new Event('promo-text-update')); return; } if (!silent) app.innerHTML='<div class="loading">正在读取冻结制品…</div>'; try { const response = await fetch('/api/workflows/'+encodeURIComponent(id)); if (!response.ok) throw new Error((await response.json()).error || '读取失败'); const review=await response.json(); if(window.promoTextReviewOpen || (silent && window.getSelection()?.toString())) return; const scroll=window.scrollY; renderUnified(review); if(silent) window.scrollTo(0,scroll); } catch (error) { if (!silent) app.innerHTML='<div class="error">'+esc(error.message || String(error))+'</div>'; } }
+function preserveReview(silent) { return window.promoTextReviewOpen || window.promoVideoReviewOpen || (silent && (window.getSelection()?.toString() || document.querySelector('.vp-panel textarea')?.value || [...document.querySelectorAll('video')].some(v=>!v.paused))); }
+async function unifiedLoad(id, silent=false) { if(preserveReview(silent)) { window.dispatchEvent(new Event('promo-text-update')); return; } if (!silent) app.innerHTML='<div class="loading">正在读取冻结制品…</div>'; try { const response = await fetch('/api/workflows/'+encodeURIComponent(id)); if (!response.ok) throw new Error((await response.json()).error || '读取失败'); const review=await response.json(); if(preserveReview(silent)) return; const scroll=window.scrollY; renderUnified(review); document.getElementById('video-review-open').hidden=review.workflow.carrier!=='video'; if(silent) window.scrollTo(0,scroll); } catch (error) { if (!silent) app.innerHTML='<div class="error">'+esc(error.message || String(error))+'</div>'; } }
 async function unifiedSync(silent=false) { const response = await fetch('/api/workflows'); workbenchWorkflows = await response.json(); if (!workbenchWorkflows.length) { app.innerHTML='<div class="empty">还没有可展示的工作流。先在 Promo Workflow 创建并同步一条流程。</div>'; return; } const preferred = selectedWorkflowId || new URLSearchParams(location.search).get('workflowId'); const selected = workbenchWorkflows.some(item => item.workflowId === preferred) ? preferred : workbenchWorkflows[0].workflowId; await selectWorkflow(selected, silent); }
-function unifiedLive() { const events = new EventSource('/api/updates'); events.addEventListener('connected',()=>{ live.textContent='实时同步'; live.className='live-indicator live'; }); events.addEventListener('workflow-change',()=>unifiedSync(true)); events.onerror=()=>{ live.textContent='定时同步'; live.className='live-indicator stale'; }; setInterval(()=>{ if(events.readyState!==EventSource.OPEN) unifiedSync(true); },15000); }
-async function unifiedBoot() { try { await unifiedSync(); refresh.addEventListener('click',()=>unifiedSync(true)); unifiedLive(); } catch(error) { app.innerHTML='<div class="error">'+esc(error.message||String(error))+'</div>'; } }
+function unifiedLive() { const events = new EventSource('/api/updates'); events.addEventListener('connected',()=>{ live.textContent='实时同步'; live.className='live-indicator live'; }); events.addEventListener('workflow-change',()=>unifiedSync(true)); events.onerror=()=>{ live.textContent='定时同步'; live.className='live-indicator stale'; }; let lastFingerprint = JSON.stringify(workbenchWorkflows); setInterval(async()=>{ if(document.hidden || preserveReview(true)) return; try { const response=await fetch('/api/workflows'); if(!response.ok) return; const fingerprint=JSON.stringify(await response.json()); if(fingerprint!==lastFingerprint) await unifiedSync(true); lastFingerprint=fingerprint; } catch {} },15000); }
+// A live update stays silent to protect an active text selection or annotation.
+// An explicit "refresh artifacts" request is different: it must fetch and render
+// the newest committed revision even when the reader still has text selected.
+async function unifiedBoot() { try { await unifiedSync(); refresh.addEventListener('click',()=>unifiedSync(false)); unifiedLive(); } catch(error) { app.innerHTML='<div class="error">'+esc(error.message||String(error))+'</div>'; } }
 unifiedBoot();
 `;
 
@@ -452,7 +578,10 @@ async function main(): Promise<void> {
   const port = process.env.PROMO_REVIEW_PORT ? Number(process.env.PROMO_REVIEW_PORT) : 4173;
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("PROMO_REVIEW_PORT must be a valid port number.");
   const host = process.env.PROMO_REVIEW_HOST ?? "127.0.0.1";
-  await startReviewHost({ dataDirectory, host, port });
+  const registry = new ProjectRegistry(defaultRegistryPath(), dataDirectory);
+  for (const issue of await registry.discoverCurrent()) console.warn(`工程登记提示：${issue}`);
+  await registry.scan();
+  await startReviewHost({ dataDirectory, host, port, registry });
   console.info(`Promo Review Desk: http://${host}:${port}`);
 }
 

@@ -436,6 +436,25 @@ export interface ArticleManuscriptMaster {
 export type ContentMaster = VideoTimelineMaster | ArticleManuscriptMaster;
 
 export interface MasterReview {
+  editorialDiagnostic?: {
+    scope: "fixed-reading-checks";
+    judgment: {
+      baseArtifactId: string | null;
+      checks: readonly EditorialDiagnosticCheck[];
+      triggeredIssueCodes: readonly EditorialIssueCode[];
+    };
+    repairs: readonly {
+      issueCode: EditorialIssueCode;
+      guidanceResourceId: string;
+      changedLocations: readonly string[];
+      beforeEvidence: readonly string[];
+      afterEvidence: readonly string[];
+    }[];
+    recheck: {
+      checks: readonly EditorialDiagnosticCheck[];
+      unresolvedIssueCodes: readonly EditorialIssueCode[];
+    };
+  } | null;
   audit?: {
     masterHash: string;
     requirementsHash: string;
@@ -474,6 +493,16 @@ export interface MasterReview {
     findings: readonly string[];
   } | null;
   assetEfficiencyFindings: readonly string[];
+}
+
+export type EditorialIssueCode = "long_range_logic" | "paragraph_transition" | "fabricated_feeling" | "adversarial_wording" | "density_rhythm" | "reader_gap";
+
+export interface EditorialDiagnosticCheck {
+  id: "paragraph_contribution" | "adjacency_basis" | "narrative_claims" | "objection_targets" | "reader_prerequisites";
+  status: "clear" | "issue" | "uncertain";
+  evidence: string;
+  evidenceQuotes: readonly string[];
+  issueCodes: readonly EditorialIssueCode[];
 }
 
 export interface MasterGrillQuestion {

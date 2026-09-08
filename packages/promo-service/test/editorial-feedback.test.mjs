@@ -108,7 +108,8 @@ test('a material revision and its per-comment action are committed together, whi
   const commit={workflowId:'wf',expectedRevision:5,kind:'submit_requirement_details',summary:'具体操作',idempotencyKey:'change',context:{baseArtifactId:base.artifactId,details:[{requirementId:'req-1',productionProcedure:'准备演示账户。打开记忆页，搜索词条。u1 输出全景；u2 输出详情。验收：两图同一条目；失败时保留缺口。'}],executionReview:{passed:true,evidence:'u1 和 u2 的构图与验收均有具体动作。'},annotationReceipts:[{annotationId:a.id,annotationRevision:a.revision,action:'changed',reply:'补了点击入口、两图要求和验收方式。',verification:'逐项核对 u1/u2 输出要求均存在。'}]}};
   const changed=await service.commit(commit);
   assert.equal(changed.reviewFeedback.pending.length,1);
-  assert.equal(changed.reviewFeedback.items.find(x=>x.id===a.id).status,'verified');
+  assert.equal(changed.reviewFeedback.items.find(x=>x.id===a.id).status,'changed');
+  assert.equal(changed.reviewFeedback.awaitingVerification.length,1);
   assert.equal(changed.artifactRefs.length,2);
   await service.commit(commit);
   assert.equal((await service.textReview('wf')).history.receipts.length,1);

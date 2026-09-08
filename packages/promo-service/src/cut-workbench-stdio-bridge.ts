@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { configuredCutWorkbench } from "./cut-workbench-config.js";
+import { createPreproductionMaterialPlan, createSpokenScript } from "./video-preproduction-deliverables.js";
 
 import type {
   CutWorkbenchBridge,
@@ -30,6 +31,14 @@ interface WorkbenchProject {
   project_id: string;
   revision: number;
   status: string;
+  execution?: {
+    production_context?: CutWorkbenchBridgeInput['productionControl'];
+    handoff: { plan_version: string; assets: unknown[] };
+    current_preview_id: string | null;
+    previews: Record<string, { preview_id: string; artifact_id?: string; locator: string; sha256: string; duration_ms: number; source_revision: number; plan_version: string }>;
+    deliverables: Record<string, { kind: string; preview_id: string }>;
+    annotations: Record<string, { status: string; fixes?: { preview_id: string; evidence: string[] }[] }>;
+  } | null;
   production_workflow?: {
     stages?: Record<string, { status?: string; artifact_ids?: string[] }>;
     artifacts?: Record<string, { stage_id?: string; kind?: string }>;
@@ -72,24 +81,60 @@ export class CutWorkbenchStdioBridge implements CutWorkbenchBridge {
     const client = new StdioMcpClient(this.options);
     try {
       await client.initialize();
-      const projectId = projectIdFor(input.lockedMaster.topicId);
+      const handoff = {
+        plan_id: `promo:${input.lockedMaster.topicId}`,
+        plan_version: createHash("sha256").update(JSON.stringify({ master: input.lockedMaster, requirements: input.requirementSet })).digest("hex"),
+        storyboard: input.lockedMaster.master,
+        narration: createSpokenScript(input.lockedMaster.master),
+        recording_guide: createPreproductionMaterialPlan(input.lockedMaster.master, input.requirementSet),
+        acceptance_criteria: input.lockedMaster.master.shots.map(shot => ({ criterion_id: `shot:${shot.id}`, text: `${shot.shotPurpose} / ${shot.visualAction}` })),
+        assets: input.mediaAssets ?? [],
+      };
+      // A changed production plan owns a fresh execution project. Older evidence stays historical.
+      const projectId = projectIdFor(`${input.lockedMaster.topicId}:${handoff.plan_version}`);
       let project = await this.inspectOrCreate(client, projectId, input);
-      if (!project.production_workflow) {
+      if (!project.execution || project.execution.handoff.plan_version !== handoff.plan_version) {
         project = await client.call<WorkbenchProject>("project.apply_plan", {
           project_id: projectId,
           expected_revision: project.revision,
           actor: "promo-workflow",
-          reason: "Initialize the canonical Cut Workbench production workflow from the locked Promo master.",
-          operations: [{ op: "configure_production_workflow", protocol_id: "video-production-v1" }],
+          reason: "Receive Promo-owned production plan in the single execution node; preserve legacy workflow as history only.",
+          operations: [{ op: "configure_execution", handoff }],
           evidence: [
             `promo:topic:${input.lockedMaster.topicId}`,
             `promo:master-confirmed:${input.lockedMaster.confirmedAt}`,
           ],
         });
       }
+      if (JSON.stringify(project.execution?.handoff.assets) !== JSON.stringify(handoff.assets)) {
+        project = await client.call<WorkbenchProject>("project.apply_plan", { project_id: projectId, expected_revision: project.revision, actor: "promo-workflow", reason: "Synchronize material inputs without restarting production.", operations: [{ op: "update_execution_assets", assets: handoff.assets }], evidence: [`promo:topic:${input.lockedMaster.topicId}`] });
+      }
+
+      // Import precise user anchors, never reinterpret old seconds on a new preview.
+      if (input.productionControl && JSON.stringify(project.execution?.production_context) !== JSON.stringify(input.productionControl)) {
+        project = await client.call<WorkbenchProject>('project.apply_plan', { project_id: projectId, expected_revision: project.revision, actor: 'promo-workflow', reason: 'Synchronize current Promo phase and round without resetting execution.', operations: [{ op: 'update_execution_context', context: input.productionControl }], evidence: ['promo:production-round'] });
+      }
+      for (const annotation of input.videoAnnotations ?? []) {
+        const sourcePreviewId = localPreviewId(projectId, annotation.previewId);
+        if (!sourcePreviewId || !project.execution?.previews[sourcePreviewId]) continue;
+        if (!project.execution.annotations[annotation.id]) {
+          project = await client.call<WorkbenchProject>("project.apply_plan", {
+            project_id: projectId, expected_revision: project.revision, actor: "promo-workflow", reason: "Forward version-bound user review feedback.",
+            operations: [{ op: "add_review_annotation", annotation_id: annotation.id, preview_id: sourcePreviewId,
+              selections: annotation.selections.map(s => ({ start_ms: s.startMs, end_ms: s.endMs, ...(s.region ? { region: s.region } : {}) })),
+              text: annotation.text, route: annotation.intent === "planning_change" ? "promo" : "cutbench" }], evidence: [`promo:annotation:${annotation.id}:${annotation.revision}`],
+          });
+        }
+        const remote = project.execution?.annotations[annotation.id];
+        let operation: Record<string, unknown> | undefined;
+        if (annotation.status === "resolved" && remote?.status === "awaiting_review") operation = { op: "resolve_review_annotation", annotation_id: annotation.id, preview_id: localPreviewId(projectId, annotation.targetPreviewId ?? ""), reviewer: "promo-workbench-human-review", human_confirmed: true, evidence: [`promo:human-annotation:${annotation.id}:${annotation.revision}`] };
+        else if (annotation.status === "open" && annotation.revision > 1 && (remote?.status === "resolved" || remote?.status === "awaiting_review")) operation = { op: "reopen_review_annotation", annotation_id: annotation.id, reason: "Human reopened the annotation in Promo review." };
+        if (operation) project = await client.call<WorkbenchProject>("project.apply_plan", { project_id: projectId, expected_revision: project.revision, actor: "promo-workflow", reason: "Synchronize explicit human annotation decision.", operations: [operation], evidence: [`promo:annotation:${annotation.id}:${annotation.revision}`] });
+      }
 
       const verification = await client.call<VerificationReport>("project.verify", { project_id: projectId, revision: project.revision });
-      return toBridgeResult(project, input, verification);
+      const executionStatus = await client.call<{ delivery_ready: boolean; blockers: readonly string[] }>("execution.status", { project_id: projectId });
+      return toBridgeResult(project, input, verification, executionStatus);
     } finally {
       await client.close();
     }
@@ -216,20 +261,25 @@ function toBridgeResult(
   project: WorkbenchProject,
   input: CutWorkbenchBridgeInput,
   verification: VerificationReport,
+  executionStatus: { delivery_ready: boolean; blockers: readonly string[] },
 ): CutWorkbenchProductionResult {
-  const workflow = project.production_workflow;
-  const stage09 = workflow?.stages?.["09-final"];
-  const artifacts = Object.entries(workflow?.artifacts ?? {});
-  const outputs = artifacts
-    .filter(([, artifact]) => artifact.stage_id === "09-final" && ["final-master", "release-landscape", "release-vertical"].includes(artifact.kind ?? ""))
-    .map(([artifactId]) => workbenchArtifactId(project.project_id, artifactId));
-  const subtitle = artifacts.find(([, artifact]) => artifact.stage_id === "09-final" && artifact.kind === "final-subtitle");
+  const execution = project.execution;
+  const previews = Object.entries(execution?.previews ?? {}).map(([id, p]) => ({ previewId: publicPreviewId(project.project_id, id), artifactId: p.artifact_id ?? workbenchArtifactId(project.project_id, id), locator: p.locator, sha256: p.sha256, durationMs: p.duration_ms, sourceRevision: p.source_revision, planVersion: p.plan_version }));
+  const current = previews.find(p => p.previewId === publicPreviewId(project.project_id, execution?.current_preview_id ?? ""));
+  const outputs = current ? [current.artifactId] : [];
+  // Subtitle delivery is a separate artifact; legacy stage approval never authorizes v2 output.
+  const subtitle = Object.entries(execution?.deliverables ?? {}).find(([, a]) => a.kind === "subtitle" && a.preview_id === execution?.current_preview_id);
   const delivered = project.status === "delivered" || project.status === "handed_off";
-  const passed = stage09?.status === "approved" && delivered && verification.passed && outputs.length > 0 && Boolean(subtitle);
-  const blockers = passed ? [] : collectBlockers(project, stage09?.status, verification, outputs.length, Boolean(subtitle));
+  const materialBlockers = input.materialBlockers ?? (input.acceptedProductionResults.length && !input.mediaAssets?.length ? ["Accepted materials have no resolved local locators; supply a verified material manifest."] : []);
+  const passed = executionStatus.delivery_ready && delivered && verification.passed && outputs.length > 0 && Boolean(subtitle) && materialBlockers.length === 0;
+  const blockers = passed ? [] : [...materialBlockers, ...executionStatus.blockers, ...verification.issues.map(i => i.message ?? i.code ?? "Video verification failed"), ...(!delivered ? ["Deliver the verified current execution preview before locking."] : []), ...(!subtitle ? ["A final subtitle artifact is required."] : [])];
 
   return {
     kind: "production_result",
+    protocolId: "cut-production-v2",
+    previews,
+    currentPreviewId: current?.previewId ?? null,
+    annotationUpdates: Object.entries(execution?.annotations ?? {}).map(([id, a]) => ({ id, status: a.status === "awaiting_review" ? "addressed" : a.status, ...(a.fixes?.at(-1) ? { targetPreviewId: publicPreviewId(project.project_id, a.fixes.at(-1)!.preview_id) } : {}), reply: a.fixes?.at(-1)?.evidence.join("\n") || "Cutbench 已生成修改版，请人工复核。" })),
     projectId: project.project_id,
     revision: project.revision,
     unitStatuses: input.acceptedProductionResults.map((result) => ({ unitId: result.unitId, status: "accepted" })),
@@ -239,24 +289,13 @@ function toBridgeResult(
   };
 }
 
-function collectBlockers(
-  project: WorkbenchProject,
-  finalStageStatus: string | undefined,
-  verification: VerificationReport,
-  outputCount: number,
-  hasSubtitle: boolean,
-): string[] {
-  const blockers: string[] = [];
-  if (finalStageStatus !== "approved") blockers.push(`Cut Workbench stage 09-final is ${finalStageStatus ?? "not_started"}; approve it before final lock.`);
-  if (project.status !== "delivered" && project.status !== "handed_off") blockers.push("Cut Workbench project must pass its delivered or handed_off protocol gate.");
-  if (outputCount === 0) blockers.push("Cut Workbench has no verified final video output artifact.");
-  if (!hasSubtitle) blockers.push("Cut Workbench has no final-subtitle artifact from stage 09-final.");
-  for (const issue of verification.issues) blockers.push(issue.message ?? issue.code ?? "Cut Workbench verification did not pass.");
-  return [...new Set(blockers)];
-}
-
 function projectIdFor(topicId: string): string {
   return `promo_${createHash("sha256").update(topicId).digest("hex").slice(0, 24)}`;
+}
+
+function publicPreviewId(projectId: string, previewId: string): string { return `${projectId}__${Buffer.from(previewId).toString("base64url")}`; }
+function localPreviewId(projectId: string, previewId: string): string | null {
+  return previewId.startsWith(`${projectId}__`) ? Buffer.from(previewId.slice(projectId.length + 2), "base64url").toString("utf8") : null;
 }
 
 function workbenchArtifactId(projectId: string, artifactId: string): string {

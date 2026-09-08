@@ -1,9 +1,11 @@
 import { resolve, join } from "node:path";
+import { realpath } from 'node:fs/promises';
 import { McpServer } from "@modelcontextprotocol/server";
 import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import * as z from "zod/v4";
 import { discoverAdapterStatus, type ProductionAdapterStatus } from "./adapter-registry.js";
 import { startReviewHost } from "./review-host.js";
+import { ProjectRegistry, defaultRegistryPath } from './project-registry.js';
 import { reviewUrlFor, workbenchFor, type PromoWorkbenchLink } from "./workbench.js";
 import {
   JsonWorkflowStore,
@@ -13,6 +15,7 @@ import {
   VectCutHttpBridge,
   WorkflowService,
   GUIDANCE_IDS,
+  EDITORIAL_ISSUE_CODES,
   type CommitKind,
   type WorkflowCarrier,
 } from "@promo-workflow/service";
@@ -68,20 +71,75 @@ function errorResponse(error: unknown) {
 export interface PromoRuntimeStatus {
   adapterStatus: readonly ProductionAdapterStatus[];
   reviewUrl?: string | undefined;
+  registry?: ProjectRegistry;
+  serviceForDataDirectory?: (directory: string) => WorkflowService;
 }
 
 export function createPromoServer(service: WorkflowService, runtime: PromoRuntimeStatus = { adapterStatus: [] }) {
+  const scoped = async (workflowId: string) => runtime.registry && runtime.serviceForDataDirectory
+    ? runtime.serviceForDataDirectory(await runtime.registry.locate(workflowId)) : service;
+  const listed = async () => {
+    if (!runtime.registry || !runtime.serviceForDataDirectory) return service.list();
+    const locations = await runtime.registry.locations();
+    const result = [];
+    for (const directory of new Set([...locations.values()].filter(paths => paths.length === 1).map(paths => paths[0]!))) {
+      result.push(...(await runtime.serviceForDataDirectory(directory).list()).filter(w => locations.get(w.workflowId)?.length === 1 && locations.get(w.workflowId)?.[0] === directory));
+    }
+    return result;
+  };
   const server = new McpServer({
     name: "promo-workflow",
     version: "0.1.0",
   });
+
+  server.registerTool('promo_register_project', {
+    title: '登记已有工作区工程', description: '按工作区绝对路径登记已有 Promo 工程。自动检查固定的数据位置，找不到时指定原 dataDirectory。不复制素材、不重建流程、不批准节点。',
+    inputSchema: { rootDirectory: z.string().min(1), dataDirectory: z.string().min(1).optional() },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  }, async ({ rootDirectory, dataDirectory }) => { try {
+    if (!runtime.registry) throw new Error('当前运行实例未启用工程名册。');
+    const project = await runtime.registry.register(rootDirectory, dataDirectory);
+    return response({ project, check: (await runtime.registry.scan()).projects.find(p => p.projectId === project.projectId) });
+  } catch(e) { return errorResponse(e); } });
+  server.registerTool('promo_projects', {
+    title: '检查所有已登记工程', description: '重新读取已登记工作区的实际进度、制作轮次及交付物记录可用性。工程离线或损坏会单独列出；不推进流程，也不把文件存在当作质量验收。',
+    inputSchema: {}, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  }, async () => { try {
+    if (!runtime.registry) throw new Error('当前运行实例未启用工程名册。');
+    return response(await runtime.registry.scan());
+  } catch(e) { return errorResponse(e); } });
 
   server.registerTool("promo_text_review", {
     title: "读取文字批注和版本原文",
     description: "读取本流程完整文字版本、自由选区批注及逐条处理回执。配合 promo_get.reviewFeedback；读取不关闭批注。",
     inputSchema: { workflowId: z.string().min(1) },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-  }, async ({ workflowId }) => { try { return response(await service.textReview(workflowId)); } catch(error) { return errorResponse(error); } });
+  }, async ({ workflowId }) => { try { return response(await (await scoped(workflowId)).textReview(workflowId)); } catch(error) { return errorResponse(error); } });
+
+  server.registerTool("promo_video_review", {
+    title: "读取视频版本与时空批注",
+    description: "读取确切审片视频版本、毫秒时间点/多段/归一化框选批注和处理状态。旧版位置不得隐式应用到新版。",
+    inputSchema: { workflowId: z.string().min(1) },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  }, async ({ workflowId }) => { try { return response(await (await scoped(workflowId)).videoReview(workflowId)); } catch(error) { return errorResponse(error); } });
+
+  server.registerTool('promo_video_production', {
+    title: '读取第六节点制作现场', description: '读取常驻制作记录、当前阶段、子任务、返工历史和验收清单。先读取再操作，不越过人工确认。',
+    inputSchema: { workflowId: z.string().min(1) },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  }, async ({ workflowId }) => { try { return response(await (await scoped(workflowId)).videoProduction(workflowId)); } catch(e) { return errorResponse(e); } });
+  server.registerTool('promo_video_production_update', {
+    title: '更新制作子任务或提交审片', description: '开始制作、更新当前阶段子任务、提交确切版本或返工到已到达阶段。人工确认、返回策划和恢复由工作台执行。完成任务须给本流程证据制品ID。',
+    inputSchema: { workflowId: z.string().min(1), expectedRevision: z.number().int(), idempotencyKey: z.string().min(1), action: z.enum(['start','task','submit','rework']), reason: z.string().min(1), taskId: z.string().optional(), title: z.string().optional(), owner: z.enum(['user','cutbench','promo']).optional(), status: z.enum(['todo','doing','blocked','done']).optional(), artifactIds: z.array(z.string()).optional(), previewId: z.string().optional(), phase: z.enum(['materials','rough_cut','audio','fine_cut','subtitles','delivery']).optional() },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  }, async input => { try { return response(await (await scoped(input.workflowId)).updateVideoProduction(input)); } catch(e) { return errorResponse(e); } });
+
+  server.registerTool("promo_video_address", {
+    title: "提交视频批注修改回执",
+    description: "将一条待处理视频批注关联到已注册的新审片版，附上修改说明和新位置。仅标记已修改待人工复核，不代替用户确认。",
+    inputSchema: { workflowId: z.string().min(1), expectedRevision: z.number().int().nonnegative(), annotationId: z.string().min(1), expectedAnnotationRevision: z.number().int().positive(), targetPreviewId: z.string().min(1), reply: z.string().min(1), idempotencyKey: z.string().min(1) },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  }, async input => { try { return response(await (await scoped(input.workflowId)).videoAnnotate({ ...input, action: "address", actor: "agent" })); } catch(error) { return errorResponse(error); } });
 
   server.registerTool(
     "promo_get",
@@ -102,9 +160,10 @@ export function createPromoServer(service: WorkflowService, runtime: PromoRuntim
       try {
         return response(
           workflowId
-            ? withRuntime(await service.get(workflowId), runtime, workflowId)
+            ? withRuntime(await (await scoped(workflowId)).get(workflowId), runtime, workflowId)
             : {
-              workflows: await service.list(),
+              workflows: await listed(),
+              projects: runtime.registry ? await runtime.registry.scan() : undefined,
               adapterStatus: runtime.adapterStatus,
               reviewUrl: runtime.reviewUrl,
               workbench: workbenchFor(runtime.reviewUrl),
@@ -148,6 +207,7 @@ export function createPromoServer(service: WorkflowService, runtime: PromoRuntim
       inputSchema: {
         workflowId: z.string().min(1),
         guideIds: z.array(z.enum(GUIDANCE_IDS)).min(1).optional(),
+        issueCodes: z.array(z.enum(EDITORIAL_ISSUE_CODES)).max(6).optional().describe("固定阅读检查发现的问题码。首次检查不要传；修复阶段只传实际发现的问题。"),
       },
       annotations: {
         readOnlyHint: true,
@@ -156,9 +216,9 @@ export function createPromoServer(service: WorkflowService, runtime: PromoRuntim
         openWorldHint: false,
       },
     },
-    async ({ workflowId, guideIds }) => {
+    async ({ workflowId, guideIds, issueCodes }) => {
       try {
-        return response(await service.guidance(workflowId, guideIds));
+        return response(await (await scoped(workflowId)).guidance(workflowId, guideIds, issueCodes));
       } catch (error) {
         return errorResponse(error);
       }
@@ -185,7 +245,7 @@ export function createPromoServer(service: WorkflowService, runtime: PromoRuntim
     async ({ workflowId, expectedRevision, idempotencyKey }) => {
       try {
         return response(withRuntime(
-          await service.run({ workflowId, expectedRevision, idempotencyKey }),
+          await (await scoped(workflowId)).run({ workflowId, expectedRevision, idempotencyKey }),
           runtime,
           workflowId,
         ));
@@ -226,16 +286,28 @@ export function createPromoServer(service: WorkflowService, runtime: PromoRuntim
           if (!input.carrier) {
             throw new Error("创建工作流需要 carrier：video 或 article。");
           }
-          const snapshot = await service.create({
+          const requestedRoot = input.rootDirectory ?? (typeof input.context.rootDirectory === 'string' ? input.context.rootDirectory : undefined);
+          const root = requestedRoot ? await realpath(requestedRoot).catch(() => resolve(requestedRoot)) : undefined;
+          const registered = root && runtime.registry ? (await runtime.registry.entries()).find(p => p.rootDirectory === root) : undefined;
+          const target = registered && runtime.serviceForDataDirectory ? runtime.serviceForDataDirectory(registered.dataDirectory) : service;
+          let creationRoot = requestedRoot;
+          if (registered && runtime.registry) {
+            for (const record of await runtime.registry.records(registered.dataDirectory)) {
+              const savedRoot = record.rootDirectory ?? record.context?.rootDirectory;
+              if (typeof savedRoot === 'string' && await realpath(savedRoot).catch(() => resolve(savedRoot)) === root) { creationRoot = savedRoot; break; }
+            }
+          }
+          const snapshot = await target.create({
               carrier: input.carrier as WorkflowCarrier,
               summary: input.summary,
               displayName: input.displayName,
-              rootDirectory: input.rootDirectory,
+              rootDirectory: creationRoot,
               context: input.context,
               startAtNode: input.startAtNode,
               idempotencyKey: input.idempotencyKey,
             });
-          return response(withRuntime(snapshot, runtime, snapshot.workflowId));
+          const registrationIssues = runtime.registry ? await runtime.registry.discoverCurrent().catch(e => [`流程已保存，但工程登记失败：${(e as Error).message}`]) : [];
+          return response({ ...withRuntime(snapshot, runtime, snapshot.workflowId), registrationIssues });
         }
 
         if (!input.workflowId || !input.expectedRevision) {
@@ -243,7 +315,7 @@ export function createPromoServer(service: WorkflowService, runtime: PromoRuntim
         }
 
         return response(withRuntime(
-          await service.commit({
+          await (await scoped(input.workflowId)).commit({
             workflowId: input.workflowId,
             expectedRevision: input.expectedRevision,
             kind: input.kind as CommitKind,
@@ -273,6 +345,15 @@ async function main() {
     : undefined;
   const cutWorkbenchBridge = CutWorkbenchStdioBridge.fromEnvironment();
   const adapterStatus = discoverAdapterStatus();
+  const registry = new ProjectRegistry(defaultRegistryPath(), dataDir);
+  const registrationIssues = await registry.discoverCurrent();
+  const startupCheck = await registry.scan();
+  console.error(`工程检查：${startupCheck.projects.length} 个已登记工程，${startupCheck.projects.filter(p => p.status !== 'ready').length} 个需要检查。`);
+  for (const issue of registrationIssues) console.error(`工程登记提示：${issue}`);
+  const serviceForDataDirectory = (directory: string) => {
+    const sourceArtifacts = new ArtifactStore(join(directory, 'artifacts'));
+    return new WorkflowService(new JsonWorkflowStore(join(directory, 'workflows.json')), sourceArtifacts, undefined, cutWorkbenchBridge, vectCutBridge, new WorkspaceDeliverables(join(directory, 'workspace'), sourceArtifacts));
+  };
   const reviewHost = process.env.PROMO_REVIEW_HOST ?? "127.0.0.1";
   const reviewPort = process.env.PROMO_REVIEW_PORT ? Number(process.env.PROMO_REVIEW_PORT) : 4173;
   let reviewUrl: string | undefined;
@@ -282,7 +363,7 @@ async function main() {
     }
     reviewUrl = `http://${reviewHost}:${reviewPort}`;
     try {
-      await startReviewHost({ dataDirectory: dataDir, host: reviewHost, port: reviewPort });
+      await startReviewHost({ dataDirectory: dataDir, host: reviewHost, port: reviewPort, registry });
       console.error(`Promo 工作台已启动：${reviewUrl}`);
     } catch (error) {
       const code = typeof error === "object" && error !== null ? (error as NodeJS.ErrnoException).code : undefined;
@@ -292,7 +373,7 @@ async function main() {
   }
   const server = createPromoServer(
     new WorkflowService(store, artifacts, undefined, cutWorkbenchBridge, vectCutBridge, workspace),
-    { adapterStatus, reviewUrl },
+    { adapterStatus, reviewUrl, registry, serviceForDataDirectory },
   );
   await server.connect(new StdioServerTransport());
 }

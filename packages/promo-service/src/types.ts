@@ -52,6 +52,8 @@ export interface WorkflowEvent {
 }
 
 export interface WorkflowRecord {
+  videoProduction?: import('./video-production.js').VideoProductionState;
+  videoReview?: import("@promo-workflow/contracts").VideoReviewState;
   textFeedback?: import("./text-feedback.js").TextFeedback;
   feedbackIdempotency?: Record<string, string>;
   id: string;
@@ -77,6 +79,8 @@ export interface PendingAction {
 }
 
 export interface WorkflowSnapshot {
+  videoProduction?: import('./video-production.js').VideoProductionState;
+  videoReview?: import("@promo-workflow/contracts").VideoReviewState;
   projectionPending?: string;
   reviewFeedback?: ReturnType<typeof import("./text-feedback.js").feedbackSnapshot>;
   editorialContext?: { requirements: unknown; requirementsHash: string; hashAlgorithm: string; instruction: string };

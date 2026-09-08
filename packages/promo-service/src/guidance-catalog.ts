@@ -6,6 +6,7 @@ import {
   TIM_CINEMATIC_VIDEO_INTENT_GUIDANCE,
   TIM_CINEMATIC_VIDEO_PROOF_PLAN_GUIDANCE,
 } from "./tim-cinematic-guidance.js";
+import { EDITORIAL_PROBLEM_ROUTER_GUIDANCE, editorialProblemResources, type EditorialIssueCode } from "./editorial-problem-guidance.js";
 
 export interface GuidanceResource {
   id: string;
@@ -22,6 +23,12 @@ export interface GuidanceGuide {
 }
 
 const CATALOG: Record<GuidanceId, GuidanceGuide> = {
+  "editorial-problem-router": {
+    id: "editorial-problem-router",
+    title: "编辑问题发现与按需修复",
+    content: EDITORIAL_PROBLEM_ROUTER_GUIDANCE,
+    resources: editorialProblemResources(),
+  },
   "human-language-writing": {
     id: "human-language-writing",
     title: "人话写作监督",
@@ -105,6 +112,10 @@ function productTweetGuide(
   };
 }
 
-export function loadGuidance(ids: readonly GuidanceId[]): GuidanceGuide[] {
-  return ids.map((id) => ({ ...CATALOG[id], content: CATALOG[id].content + EDITORIAL_REVIEW_GUIDANCE }));
+export function loadGuidance(ids: readonly GuidanceId[], options: { issueCodes?: readonly EditorialIssueCode[] } = {}): GuidanceGuide[] {
+  return ids.map((id) => ({
+    ...CATALOG[id],
+    resources: id === "editorial-problem-router" ? editorialProblemResources(options.issueCodes) : CATALOG[id].resources,
+    content: CATALOG[id].content + EDITORIAL_REVIEW_GUIDANCE,
+  }));
 }

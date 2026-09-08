@@ -1,9 +1,11 @@
 /** The text desk uses exact source text, never contenteditable or injected Markdown HTML. */
+import { REVIEW_SIDEBAR_CSS } from './review-sidebar-style.js';
 export const TEXT_REVIEW_JS = String.raw`
 (() => {
   const style = document.createElement('style');
   style.textContent = '.text-desk{position:fixed;inset:16px;z-index:100;background:#faf9f5;color:#24231e;border:1px solid #c9c5b9;border-radius:16px;box-shadow:0 12px 80px #0004;display:flex;flex-direction:column;padding:20px}.text-toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.text-toolbar h2{margin:0 auto 0 0}.text-layout{display:grid;grid-template-columns:minmax(0,2fr) minmax(270px,1fr);gap:24px;overflow:hidden;flex:1;margin-top:16px}.text-pages,.text-comments{overflow:auto;padding:8px}.text-field{white-space:pre-wrap;overflow-wrap:anywhere;font:17px/1.95 system-ui;user-select:text;margin:8px 0 24px}.text-comments textarea{box-sizing:border-box;width:100%;min-height:90px;font:16px/1.5 system-ui;padding:10px}.text-note{border-bottom:1px solid #d4d0c7;padding:12px 0}.text-note blockquote{white-space:pre-wrap;max-height:110px;overflow:auto;border-left:3px solid #c9b278;margin:8px 0;padding-left:10px}.text-note p{white-space:pre-wrap}.text-desk button,.text-desk select{font:14px system-ui;padding:7px 10px;cursor:pointer}.text-desk mark{background:#fae5a6}.text-status{font-size:13px;color:#665739;white-space:pre-wrap}.text-diff{display:grid;grid-template-columns:1fr 1fr;gap:16px}.text-diff pre{white-space:pre-wrap;overflow-wrap:anywhere;font:15px/1.8 system-ui}.text-diff del{background:#fbd9d5}.text-diff ins{background:#d8edcf;text-decoration:none}.text-selected{background:#fff0bf;padding:8px;margin:8px 0;white-space:pre-wrap;max-height:120px;overflow:auto}@media(max-width:800px){.text-desk{inset:0;padding:10px}.text-layout{grid-template-columns:1fr;overflow:auto}.text-pages,.text-comments{overflow:visible}.text-diff{grid-template-columns:1fr}}';
   document.head.append(style);
+  style.textContent += ${JSON.stringify(REVIEW_SIDEBAR_CSS)};
   style.textContent+='::highlight(promo-notes){background:#fae5a6}::highlight(promo-focus){background:#f7c56f}';
   let desk, review, current, workflowId, token, selections=[], editing=null, requestKey=null, saving=false;
   const el = (tag, text, className) => { const n=document.createElement(tag); if(text!==undefined) n.textContent=text; if(className) n.className=className; return n; };
@@ -88,10 +90,13 @@ export const TEXT_REVIEW_JS = String.raw`
   function renderNotes(){
     const list=desk.querySelector('.text-note-list');list.replaceChildren();
     const ids=new Set(familyVersions().map(a=>a.artifactId));
-    const items=review.feedback.items.filter(a=>ids.has(a.artifactId));
+    const latestActivity=a=>Math.max(Date.parse(a.at)||0,Date.parse(a.receipt?.at)||0);
+    const items=[...review.feedback.items]
+      .filter(a=>ids.has(a.artifactId))
+      .sort((left,right)=>latestActivity(right)-latestActivity(left)||right.id.localeCompare(left.id));
     if(window.Highlight)CSS.highlights.set('promo-notes',new Highlight(...rangesFor(items.filter(a=>a.artifactId===current.artifactId&&!a.withdrawn).flatMap(a=>a.anchors))));
     if(!items.length)list.append(el('p','暂无批注。'));
-    const labels={pending:'待处理',needs_input:'需补充信息',replied:'已回复',verified:'已验证',withdrawn:'已撤回'};
+    const labels={pending:'待处理',needs_input:'需补充信息',replied:'已回复',changed:'已修改，待复核',verified:'历史已验证',withdrawn:'已撤回'};
     items.forEach(a=>{
       const row=el('article',undefined,'text-note');row.dataset.annotationId=a.id;
       row.append(el('strong',labels[a.status]+' · 原版 '+(familyVersions().findIndex(v=>v.artifactId===a.artifactId)+1)),el('p',a.body));

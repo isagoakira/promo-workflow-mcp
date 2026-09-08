@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, rename, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 
 import type { ArtifactStore } from "./artifacts/store.js";
@@ -79,7 +79,10 @@ export class WorkspaceDeliverables {
         setupConfirmed: true,
         setupConfirmedAt: new Date().toISOString(),
       });
-    if (scope.workflowId !== input.workflowId || scope.carrier !== input.carrier || scope.root !== root) {
+    // Registry lookup canonicalizes symlinks (notably /var -> /private/var on macOS).
+    // Accept an existing scope only when both spellings resolve to the same directory.
+    const sameRoot = scope.root === root || await realpath(scope.root).catch(() => null) === await realpath(root).catch(() => undefined);
+    if (scope.workflowId !== input.workflowId || scope.carrier !== input.carrier || !sameRoot) {
       throw new Error("Workspace scope does not match the active workflow.");
     }
     await this.ensureLayout(scope);

@@ -509,6 +509,17 @@ function renderMasterReview(value: unknown): string[] {
   pushField(lines, "总体结果", booleanValue(review.passed) === true ? (review.audit ? "编辑审计通过（不等于人工批准）" : "历史通过记录（未附新版验证依据）") : booleanValue(review.passed) === false ? "未通过或尚未验证" : undefined);
   pushField(lines, "版本化审计依据", review.audit);
   pushField(lines, "证据阻塞", review.evidenceBlockers);
+  const diagnostic = asRecord(review.editorialDiagnostic);
+  if (diagnostic) {
+    const judgment = asRecord(diagnostic.judgment);
+    const recheck = asRecord(diagnostic.recheck);
+    lines.push("#### 判断 → 修复 → 复审");
+    pushField(lines, "初次判断", judgment?.checks);
+    pushField(lines, "触发问题", judgment?.triggeredIssueCodes);
+    pushField(lines, "逐项修复", diagnostic.repairs);
+    pushField(lines, "复审结果", recheck?.checks);
+    pushField(lines, "仍未解决", recheck?.unresolvedIssueCodes);
+  }
   const writingStyle = asRecord(review.writingStyle);
   if (writingStyle) {
     lines.push("#### 写作审校");

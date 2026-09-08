@@ -126,8 +126,8 @@ test("workflow advances with optimistic revisions and idempotency", async () => 
   assert.equal(baselineStarted.agentWork.constraints.some((constraint) => /select one primary recommendation/.test(constraint)), true);
   assert.equal(baselineStarted.agentWork.constraints.some((constraint) => /recommendationRationale/.test(constraint)), true);
   const guidance = await service.guidance(baselineStarted.workflowId);
-  assert.deepEqual(guidance.guides.map((guide) => guide.id), ["human-language-writing", "promo-writing-supervision", "product-tweet-article-contract"]);
-  const writingGuide = guidance.guides.find((guide) => guide.id === "promo-writing-supervision");
+  assert.deepEqual(guidance.guides.map((guide) => guide.id), ["human-language-writing"]);
+  const writingGuide = (await service.guidance(baselineStarted.workflowId, ["promo-writing-supervision"])).guides.find((guide) => guide.id === "promo-writing-supervision");
   assert.ok(writingGuide);
   assert.match(writingGuide.content, /Geek Product Promo Writing/);
   assert.equal(writingGuide.resources.length, 5);
@@ -232,6 +232,8 @@ test("video workflow connects outline, master, requirements, production, and rel
           projectId: "cut-project-1",
           revision: 1,
           unitStatuses: [],
+          previews: [{ previewId: 'test-preview', artifactId: 'video-render-1', sha256: 'a'.repeat(64), locator: '/tmp/test.mp4', durationMs: 120000, sourceRevision: 1, planVersion: 'test-plan' }],
+          currentPreviewId: 'test-preview',
           verifiedOutputArtifactIds: ["video-render-1"],
           finalSubtitleArtifactId: "final-srt-1",
           finalGate: { passed: true, blockers: [], verifiedAt: "2026-09-01T00:00:00.000Z" },
@@ -311,8 +313,17 @@ test("video workflow connects outline, master, requirements, production, and rel
   assert.equal(updated.artifactRefs.some((artifact) => artifact.kind === "production_checkpoint"), true);
   const rendered = await service.run({ workflowId: created.workflowId, expectedRevision: updated.revision, idempotencyKey: "e2e-video-render" });
   assert.equal(rendered.artifactRefs.some((artifact) => artifact.kind === "production_handoff"), true);
+  await assert.rejects(service.commit({ workflowId: created.workflowId, expectedRevision: rendered.revision, kind: 'lock_production', summary: 'must not skip review', context: {}, idempotencyKey: 'skip-subflow' }), /six video production phases/);
+  let productionRevision = rendered.revision;
+  const evidence = rendered.artifactRefs.find(a => a.kind === 'production_handoff').artifactId;
+  for (let phase = 0; phase < 6; phase++) {
+    let result = await service.updateVideoProduction({ workflowId: created.workflowId, expectedRevision: productionRevision, action: 'task', title: '本阶段实测验收', status: 'done', artifactIds: [evidence], reason: 'fixture inspection', idempotencyKey: 'phase-task-'+phase });
+    result = await service.updateVideoProduction({ workflowId: created.workflowId, expectedRevision: result.revision, action: 'submit', artifactIds: [evidence], previewId: 'test-preview', reason: 'fixture delivery', idempotencyKey: 'phase-submit-'+phase });
+    result = await service.updateVideoProduction({ workflowId: created.workflowId, expectedRevision: result.revision, action: 'approve', submissionId: result.production.submission.id, reason: 'human fixture confirmation', idempotencyKey: 'phase-approve-'+phase }, 'human');
+    productionRevision = result.revision;
+  }
   const lockedProduction = await service.commit({
-    workflowId: created.workflowId, expectedRevision: rendered.revision, kind: "lock_production", summary: "Lock production",
+    workflowId: created.workflowId, expectedRevision: productionRevision, kind: "lock_production", summary: "Lock production",
     context: {}, idempotencyKey: "e2e-production-lock",
   });
   const packaging = await service.run({ workflowId: created.workflowId, expectedRevision: lockedProduction.revision, idempotencyKey: "e2e-package-brief" });
@@ -366,8 +377,21 @@ test("article workflow assembles a local preview before production lock and rele
   const draft = await service.commit({ workflowId: created.workflowId, expectedRevision: route.revision, kind: "submit_outline_draft", summary: "Outline", context: { outlineDraft: validArticleOutlineDraft() }, idempotencyKey: "article-outline" });
   const lockedOutline = await service.commit({ workflowId: created.workflowId, expectedRevision: draft.revision, kind: "lock_outline", summary: "Lock outline", context: {}, idempotencyKey: "article-lock-outline" });
   const mastering = await service.run({ workflowId: created.workflowId, expectedRevision: lockedOutline.revision, idempotencyKey: "article-master-brief" });
-  assert.equal(mastering.agentWork.guidance.policies.some((policy) => policy.id === "product-tweet-manuscript-proof"), true);
+  assert.equal(mastering.agentWork.guidance.policies.some((policy) => policy.id === "editorial-problem-router"), true);
+  assert.equal(mastering.agentWork.guidance.policies.some((policy) => policy.id === "human-language-writing"), true);
+  assert.equal(mastering.agentWork.guidance.policies.some((policy) => policy.id === "product-tweet-manuscript-proof"), false);
   assert.equal(mastering.agentWork.guidance.policies.some((policy) => policy.id === "product-tweet-visual-proof"), true);
+  const defaultMasterGuidance = await service.guidance(created.workflowId);
+  assert.deepEqual(defaultMasterGuidance.guides.map((guide) => guide.id), ["editorial-problem-router", "human-language-writing"]);
+  const detectionGuide = await service.guidance(created.workflowId, ["editorial-problem-router"]);
+  assert.equal(detectionGuide.guidanceTrace.phase, "detect");
+  assert.deepEqual(detectionGuide.guides[0].resources.map((resource) => resource.id), ["fixed-reading-checks"]);
+  const repairGuide = await service.guidance(created.workflowId, ["editorial-problem-router"], ["long_range_logic"]);
+  assert.equal(repairGuide.guidanceTrace.phase, "repair");
+  assert.deepEqual(repairGuide.guides[0].resources.map((resource) => resource.id), ["fixed-reading-checks", "long-range-logic-repair"]);
+  const missingDiagnostic = auditedReview("article", mastering);
+  delete missingDiagnostic.editorialDiagnostic;
+  await assert.rejects(service.commit({ workflowId: created.workflowId, expectedRevision: mastering.revision, kind: "submit_master_draft", summary: "Missing diagnostic", context: { masterDraft: validArticleMasterDraft(), masterReview: missingDiagnostic }, idempotencyKey: "article-master-missing-diagnostic" }), /editorialDiagnostic/);
   const master = await service.commit({ workflowId: created.workflowId, expectedRevision: mastering.revision, kind: "submit_master_draft", summary: "Master", context: { masterDraft: validArticleMasterDraft(), masterReview: auditedReview("article", mastering) }, idempotencyKey: "article-master" });
   assert.equal(master.artifactRefs.some((artifact) => artifact.kind === "master_review"), true);
   const lockedMaster = await service.commit({ workflowId: created.workflowId, expectedRevision: master.revision, kind: "lock_master", summary: "Lock master", context: {}, idempotencyKey: "article-lock-master" });
@@ -566,6 +590,24 @@ function validCreativeRoutes() {
 function validMasterReview(carrier) {
   return {
     passed: true, evidenceBlockers: [], assetEfficiencyFindings: [],
+    editorialDiagnostic: carrier === "article" ? {
+      scope: "fixed-reading-checks",
+      judgment: { baseArtifactId: null, checks: [
+        ["paragraph_contribution", "Every paragraph adds a distinct fact or conclusion."],
+        ["adjacency_basis", "Each paragraph answers the question left by the previous paragraph."],
+        ["narrative_claims", "The article makes no unsupported claim about reader feelings or experience."],
+        ["objection_targets", "Every contrast responds to an explicit claim in the article."],
+        ["reader_prerequisites", "Terms are introduced before the reader needs them."],
+      ].map(([id,evidence])=>({id,status:"clear",evidence,evidenceQuotes:["一次工作流真正难的"],issueCodes:[]})), triggeredIssueCodes: [] },
+      repairs: [],
+      recheck: { checks: [
+        ["paragraph_contribution", "Every paragraph adds a distinct fact or conclusion."],
+        ["adjacency_basis", "Each paragraph answers the question left by the previous paragraph."],
+        ["narrative_claims", "The article makes no unsupported claim about reader feelings or experience."],
+        ["objection_targets", "Every contrast responds to an explicit claim in the article."],
+        ["reader_prerequisites", "Terms are introduced before the reader needs them."],
+      ].map(([id,evidence])=>({id,status:"clear",evidence,evidenceQuotes:["一次工作流真正难的"],issueCodes:[]})), unresolvedIssueCodes: [] },
+    } : null,
     writingStyle: { skill: "geek-product-promo-writing", scope: "macro-meso-micro", passed: true, findings: ["Scene leads before mechanism."] },
     storyboardDirection: carrier === "video" ? { skill: "storyboard-direction", scope: "shot-continuity-coverage-assets", passed: true, findings: ["Continuity checked."] } : null,
     articleEditorial: carrier === "article" ? { skill: "product-tweet-editor", scope: "human-center-evidence-voice", passed: true, findings: ["The human concern remains connected to evidence."] } : null,

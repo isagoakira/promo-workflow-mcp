@@ -25,6 +25,10 @@ export interface AcceptedProductionResult {
 }
 
 export interface CutWorkbenchBridgeInput {
+  productionControl?: { phase: string; round: number; tasks: readonly import('./video-production.js').VideoProductionTask[]; instruction: string } | undefined;
+  mediaAssets?: readonly import("./video-materials.js").VideoMaterial[];
+  materialBlockers?: readonly string[];
+  videoAnnotations?: readonly import("@promo-workflow/contracts").VideoAnnotation[];
   lockedMaster: LockedVideoMaster;
   requirementSet: CompiledRequirementSet;
   acceptedProductionResults: readonly AcceptedProductionResult[];
@@ -42,6 +46,10 @@ export interface CutWorkbenchFinalGate {
 }
 
 export interface CutWorkbenchProductionResult {
+  annotationUpdates?: readonly { id: string; status: string; targetPreviewId?: string; reply?: string }[];
+  protocolId?: "cut-production-v2";
+  previews?: readonly import("@promo-workflow/contracts").VideoPreview[];
+  currentPreviewId?: string | null;
   kind: "production_result";
   projectId: string;
   revision: number;
@@ -146,6 +154,7 @@ export function assertCutWorkbenchBridgeResult(result: CutWorkbenchBridgeResult)
   assertFinalGate(result.finalGate);
 
   if (result.finalGate.passed) {
+    if (result.finalGate.blockers.length || !result.finalGate.verifiedAt) throw new Error("A passed final gate requires current verification and no blockers.");
     if (!result.finalSubtitleArtifactId) {
       throw new Error("A passed Cut Workbench final gate requires a final subtitle artifact ID.");
     }

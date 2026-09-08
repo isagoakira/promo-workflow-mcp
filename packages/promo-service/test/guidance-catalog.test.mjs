@@ -3,6 +3,22 @@ import test from "node:test";
 
 import { createGuidanceRequest, loadGuidance } from "../dist/index.js";
 
+test("editorial guidance detects first and loads only repairs triggered by concrete issues", () => {
+  const [detection] = loadGuidance(["editorial-problem-router"]);
+  assert.deepEqual(detection.resources.map((resource) => resource.id), ["fixed-reading-checks"]);
+  assert.match(detection.content, /先抽取，再判断/);
+
+  const [repairs] = loadGuidance(["editorial-problem-router"], {
+    issueCodes: ["long_range_logic", "fabricated_feeling"],
+  });
+  assert.deepEqual(repairs.resources.map((resource) => resource.id), [
+    "fixed-reading-checks",
+    "long-range-logic-repair",
+    "narrative-permission-repair",
+  ]);
+  assert.equal(repairs.resources.some((resource) => resource.id === "sentence-naturalness-repair"), false);
+});
+
 test("human-language guidance is a high-priority gate with actionable resources", () => {
   const request = createGuidanceRequest(["promo-writing-supervision", "human-language-writing"]);
   assert.deepEqual(request.policies.map((policy) => policy.id), ["human-language-writing", "promo-writing-supervision"]);

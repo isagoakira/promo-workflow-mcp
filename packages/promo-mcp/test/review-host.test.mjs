@@ -144,6 +144,10 @@ test("review host exposes the current agent brief when a node has no draft artif
       assert.equal(review.steps[node - 1].artifacts[0].kind, "agent_work_brief");
       assert.equal(review.steps[node - 1].artifacts[0].content.stage, stage);
       assert.equal(review.steps[node - 1].artifacts[0].content.inputs, undefined, "brief must not duplicate large upstream inputs");
+      const brief = review.steps[node - 1].artifacts[0].content;
+      assert.ok(brief.doing && brief.output && brief.check);
+      assert.equal(brief.requestedOutput, undefined, 'agent schema is not a human brief');
+      assert.equal(brief.validationRules, undefined);
     } finally {
       await new Promise((resolveClose, rejectClose) => server.close((error) => error ? rejectClose(error) : resolveClose()));
     }
@@ -193,6 +197,68 @@ test("review host hides superseded drafts when the locked deliverable is availab
     } } }));
     const revised = await (await fetch(`http://127.0.0.1:${address.port}/api/workflows/${workflowId}`)).json();
     assert.deepEqual(revised.steps[1].artifacts.map(artifact => artifact.kind), ["baseline_draft"], "a newer draft must not be hidden by an older locked version");
+  } finally {
+    await new Promise((resolveClose, rejectClose) => server.close((error) => error ? rejectClose(error) : resolveClose()));
+  }
+});
+
+test("review host reads projected artifacts from the declared project workspace only", async () => {
+  const dataDirectory = await mkdtemp(join(tmpdir(), "promo-review-project-root-"));
+  const projectRoot = await mkdtemp(join(tmpdir(), "promo-review-project-"));
+  const workflowId = "wf-project-root";
+  const workspace = join(projectRoot, "workspace", workflowId, "04-master");
+  await mkdir(workspace, { recursive: true });
+  const masterPath = join(workspace, "master-draft.json");
+  await writeFile(masterPath, JSON.stringify({ content: { master: { bodyMarkdown: "Project workspace is a valid, reviewable projection." } } }));
+  await writeFile(join(dataDirectory, "workflows.json"), JSON.stringify({ schemaVersion: 1, workflows: {
+    [workflowId]: { id: workflowId, carrier: "article", state: "ALIGNING_MASTER", revision: 8, rootDirectory: projectRoot, summary: "Project-root projection.", updatedAt: "2026-09-07T00:00:00.000Z", events: [] },
+  } }));
+  const reviewRoot = join(dataDirectory, "workspace", workflowId);
+  await mkdir(reviewRoot, { recursive: true });
+  await writeFile(join(reviewRoot, "manifest.json"), JSON.stringify({ workflowId, carrier: "article", rootDirectory: projectRoot, state: "ALIGNING_MASTER", revision: 8, summary: "Project-root projection.", deliverables: [
+    { artifactId: "artifact-project", kind: "content_master_draft", path: masterPath },
+    { artifactId: "artifact-outside", kind: "content_master_draft", path: join(projectRoot, "other-workflow", "master.json") },
+  ] }));
+  const server = createReviewHost({ dataDirectory });
+  await new Promise((resolveListening) => server.listen(0, "127.0.0.1", resolveListening));
+  try {
+    const address = server.address();
+    assert.ok(address && typeof address !== "string");
+    const review = await (await fetch(`http://127.0.0.1:${address.port}/api/workflows/${workflowId}`)).json();
+    assert.deepEqual(review.steps[3].artifacts.map((artifact) => artifact.artifactId), ["artifact-project"]);
+  } finally {
+    await new Promise((resolveClose, rejectClose) => server.close((error) => error ? rejectClose(error) : resolveClose()));
+  }
+});
+
+test("review host prefers current committed artifacts when the workspace manifest is stale", async () => {
+  const dataDirectory = await mkdtemp(join(tmpdir(), "promo-review-current-artifact-"));
+  const workflowId = "wf-current-artifact";
+  const workspace = join(dataDirectory, "workspace", workflowId);
+  await mkdir(join(dataDirectory, "artifacts"), { recursive: true });
+  await mkdir(workspace, { recursive: true });
+  const lockedId = "artifact_11111111-1111-4111-8111-111111111111";
+  const currentDraftId = "artifact_22222222-2222-4222-8222-222222222222";
+  await writeFile(join(dataDirectory, "artifacts", `${lockedId}.json`), JSON.stringify({ artifactId: lockedId, kind: "content_master", content: { master: { title: "旧锁定稿" } } }));
+  await writeFile(join(dataDirectory, "artifacts", `${currentDraftId}.json`), JSON.stringify({ artifactId: currentDraftId, kind: "content_master_draft", content: { master: { title: "当前草稿" } } }));
+  await writeFile(join(dataDirectory, "workflows.json"), JSON.stringify({ schemaVersion: 1, workflows: {
+    [workflowId]: {
+      id: workflowId, carrier: "article", state: "ALIGNING_MASTER", revision: 49,
+      summary: "当前草稿等待审阅。", updatedAt: "2026-09-07T00:00:00.000Z", events: [],
+      context: { artifactRefs: [{ artifactId: lockedId }, { artifactId: currentDraftId }] },
+    },
+  } }));
+  await writeFile(join(workspace, "manifest.json"), JSON.stringify({ workflowId, carrier: "article", state: "AWAITING_HUMAN_REVIEW", revision: 41, deliverables: [] }));
+
+  const server = createReviewHost({ dataDirectory });
+  await new Promise((resolveListening) => server.listen(0, "127.0.0.1", resolveListening));
+  try {
+    const address = server.address();
+    assert.ok(address && typeof address !== "string");
+    const review = await (await fetch(`http://127.0.0.1:${address.port}/api/workflows/${workflowId}`)).json();
+    assert.equal(review.workflow.revision, 49);
+    assert.deepEqual(review.steps[3].artifacts.map((artifact) => artifact.artifactId), [currentDraftId]);
+    assert.equal(review.steps[3].artifacts[0].content.master.title, "当前草稿");
   } finally {
     await new Promise((resolveClose, rejectClose) => server.close((error) => error ? rejectClose(error) : resolveClose()));
   }

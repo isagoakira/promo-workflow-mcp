@@ -53,7 +53,9 @@ export function createMasterDevelopmentBrief(input: CreateMasterDevelopmentBrief
         : "Return one complete Markdown manuscript with source-preserving claims and useful title alternatives.",
       "Return one shared asset plan using source asset -> reusable fragment -> usage; every source asset must carry a captureProtocol with visible states, handles, and backup strategy.",
       "Every ordinary source asset must have two meaningful usages; a single-use asset needs an essential one-off reason.",
-      "Use geek-product-promo-writing for writing supervision and storyboard-direction for video craft supervision.",
+      carrier === "video"
+        ? "Use the video writing and storyboard guidance returned by promo_guidance."
+        : "Load editorial-problem-router first; perform fixed reading checks before requesting only the repair cards for discovered issue codes.",
       "Ask a Grill question only for a blocking choice; do not use it for local wording, timing, or ordinary reuse fixes.",
     ],
     requestedOutput: {
@@ -68,11 +70,12 @@ export function createMasterDevelopmentBrief(input: CreateMasterDevelopmentBrief
       "Submit through promo_commit(kind=submit_master_draft).",
       "The service validates only structure, timing, links, counts, and reuse rules; review conclusions remain explicit Agent output.",
       "Lock only after the complete master, review, and asset plan pass validation.",
+      ...(carrier === "article" ? ["masterReview.editorialDiagnostic must contain judgment (previous artifact ID and quoted checks), repairs (issue code and before/after evidence), and recheck; first drafts use a null baseArtifactId and cannot claim prior repairs."] : []),
     ],
     nextCommitKind: "submit_master_draft",
     guidance: createGuidanceRequest(carrier === "video"
       ? ["human-language-writing", "promo-writing-supervision", "promo-storyboard-supervision", "product-voiceover-campaign", "promo-deliverable-exemplars", "tim-cinematic-video-proof-plan"]
-      : ["human-language-writing", "promo-writing-supervision", "product-tweet-manuscript-proof", "product-tweet-visual-proof"]),
+      : ["editorial-problem-router", "product-tweet-visual-proof"]),
   });
 }
 
@@ -90,7 +93,7 @@ export function validateMasterDraft(
 ): MasterDraftValidation {
   const errors: string[] = [];
   const warnings: string[] = [];
-  validateBudget(master, input.budget, errors);
+  validateBudget(master, input.budget, errors, warnings);
   validateAssetPlan(master.assetPlan, errors, warnings);
 
   if (master.carrier === "video") {
@@ -223,7 +226,7 @@ function readAssetUsage(value: unknown, index: number): AssetUsagePlan {
   };
 }
 
-function validateBudget(master: ContentMaster, budget: ContentBudget | undefined, errors: string[]): void {
+function validateBudget(master: ContentMaster, budget: ContentBudget | undefined, errors: string[], warnings: string[]): void {
   if (!budget) return;
   if (budget.carrier !== master.carrier) {
     errors.push(`Master carrier ${master.carrier} does not match the selected ${budget.carrier} budget.`);
@@ -236,7 +239,7 @@ function validateBudget(master: ContentMaster, budget: ContentBudget | undefined
     const characterCount = countMeaningfulCharacters(master.bodyMarkdown);
     const [minimum, maximum] = budget.targetChineseCharacterRange;
     if (characterCount < minimum || characterCount > maximum) {
-      errors.push(`Article body has ${characterCount} meaningful characters; selected budget requires ${minimum}-${maximum}.`);
+      warnings.push(`Article body has ${characterCount} meaningful characters; editorial target is ${minimum}-${maximum}. The draft remains reviewable.`);
     }
   }
 }

@@ -1,0 +1,32 @@
+import { readFile } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
+import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
+import { ArtifactStore, JsonWorkflowStore, WorkspaceDeliverables } from '../packages/promo-service/dist/index.js';
+
+const root = resolve(process.argv[2]);
+const compatible = process.argv.includes('--compatible');
+const locator = join(root, compatible ? 'bunny-compatible.mp4' : 'bunny-trailer.mp4');
+const store = new JsonWorkflowStore(join(root, 'workflows.json'));
+const artifacts = new ArtifactStore(join(root, 'artifacts'));
+const workspace = new WorkspaceDeliverables(join(root, 'workspace'), artifacts);
+const durationMs = Math.round(Number(execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', locator], { encoding: 'utf8' }).trim()) * 1000);
+const sha256 = createHash('sha256').update(await readFile(locator)).digest('hex');
+await store.exclusive(async () => {
+  const data = await store.read();
+  const record = data.workflows['wf-video'];
+  if (!record || record.rootDirectory !== root) throw Error('Only the existing isolated wf-video demo may be updated.');
+  const previewId = compatible ? 'bunny-compatible-review' : 'bunny-trailer-review';
+  const ref = await artifacts.write({ kind: 'master_review', content: { videoPreview: { previewId, title: 'Big Buck Bunny 预告片 · 批注测试', sourceUrl: 'https://media.w3.org/2010/05/bunny/trailer.mp4' }, review: { passed: false, evidenceBlockers: ['供交互测试：拖动打点、选多段、框选并填写意见。不会自动批准主稿。'] } }, parentArtifactIds: [], revision: record.revision + 1 });
+  record.videoReview ??= { previews: [], currentPreviewId: null, annotations: [], history: [] };
+  if (!record.videoReview.previews.some(p => p.previewId === previewId)) record.videoReview.previews.push({ previewId, artifactId: ref.artifactId, sha256, locator, durationMs, sourceRevision: record.revision + 1, planVersion: 'demo-master-review' });
+  record.videoReview.currentPreviewId = previewId;
+  record.state = 'ALIGNING_MASTER';
+  record.revision++;
+  record.updatedAt = new Date().toISOString();
+  record.summary = '主稿审校测试：已挂载真实动画预告片，可直接打开视频批注。';
+  record.context.artifactRefs = [...(record.context.artifactRefs ?? []), ref];
+  await store.write(data);
+  await workspace.sync({ workflowId: record.id, carrier: record.carrier, displayName: record.displayName, rootDirectory: root, state: record.state, revision: record.revision, summary: record.summary, artifactRefs: record.context.artifactRefs, workspaceScope: workspace.scopeFor(record.id, record.carrier) });
+  console.log(JSON.stringify({ workflowId: record.id, previewId, durationMs, state: record.state }));
+});

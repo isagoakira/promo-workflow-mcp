@@ -57,6 +57,7 @@ try {
   await page.reload();await page.waitForLoadState('networkidle');
   await page.locator('[data-text-artifact]').first().click();
   await page.locator('.text-note').first().waitFor();assert.equal(await page.locator('.text-note').count(),2);
+  assert.match(await page.locator('.text-note').first().innerText(), /第二条全文意见/);
   await page.getByLabel('批注意见').fill('网络失败也不要丢失这条意见。');
   await page.route('**/annotations',route=>route.abort(),{times:1});
   await page.getByRole('button',{name:'保存批注',exact:true}).click();
