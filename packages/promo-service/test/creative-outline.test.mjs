@@ -147,6 +147,9 @@ test("requires article section purposes to be distinct and obeys Grill caps", ()
     },
   }, budget);
   assert.equal(draft.outline.carrier, "article");
+  assert.deepEqual(draft.outline.editorialIntent.articleForm, "technology explainer");
+  assert.equal(draft.outline.sections[0].design.emphasis, "expand");
+  assert.match(draft.outline.sections[0].design.expressionMethod, /concrete scene/);
 
   assert.throws(() => readCreativeOutlineDraft({
     selectedRouteId: "route-1",
@@ -195,11 +198,23 @@ function articleSection(id, content) {
     authorJudgment: null,
     transition: null,
     visualAsset: null,
+    design: {
+      contentSequence: `${id} starts from the reader's immediate situation, then explains one necessary condition.`,
+      emphasis: id === "scene" ? "expand" : "standard",
+      expressionMethod: "Use one concrete scene before mechanism explanation.",
+      voiceAndRhythm: "Plainspoken, then pause after the key judgment.",
+      attentionHook: "Give the reader one new condition they can recognize.",
+      handoff: `Leave the unresolved condition that the next ${id} section must answer.`,
+    },
   };
 }
 
 function editorialIntent() {
   return {
+    articleForm: "technology explainer",
+    narrativeStrategy: "Move from a recognizable working moment to the mechanism, then to a bounded product judgment.",
+    voiceAndTone: "Calm, specific and technically literate without showing off terminology.",
+    readerRelationship: "An editor explaining the working implication to a new practitioner.",
     readerDecision: "Decide whether a controlled rerun is worth adopting.",
     humanCenter: "The small anxiety of losing context after an interrupted run.",
     authorStance: "A practical builder who values recoverability over spectacle.",

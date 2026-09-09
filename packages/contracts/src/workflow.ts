@@ -53,12 +53,26 @@ export interface CampaignIntentCard {
 export interface ArticleEditorialIntent {
   /** User-selected expression control, never a quality score. */
   proseLooseness?: number | null;
+  articleForm?: string;
+  narrativeStrategy?: string;
+  voiceAndTone?: string;
+  readerRelationship?: string;
   readerDecision: string;
   humanCenter: string;
   authorStance: string;
   warmThread: string;
   emotionalArc: string;
   evidencePosture: string;
+}
+
+/** The writing design for one article section, planned before prose is drafted. */
+export interface ArticleSectionDesign {
+  contentSequence: string;
+  emphasis: "expand" | "standard" | "brief";
+  expressionMethod: string;
+  voiceAndRhythm: string;
+  attentionHook: string;
+  handoff: string;
 }
 
 export interface ScenarioGrillOption {
@@ -255,6 +269,7 @@ export interface ArticleOutlineSection {
   avoid: string | null;
   transition: string | null;
   visualAsset: string | null;
+  design: ArticleSectionDesign;
 }
 
 export interface VideoOutline {

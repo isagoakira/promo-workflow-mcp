@@ -46,14 +46,15 @@ function isAnnotationField(family: string, field: string): boolean {
     case "baseline":
       return /^\/(coreMessage|guidanceIntent)$/.test(field)
         || /^\/campaignIntent\/(audienceMoment|immediateBenefit|longTermBenefit|beliefToChange|proofToShow|evidenceBoundary|narratorPosition|promotionalTemperature|primaryCallToAction|avoid\/\d+)$/.test(field)
-        || /^\/articleEditorialIntent\/(readerDecision|humanCenter|authorStance|warmThread|emotionalArc|evidencePosture)$/.test(field);
+        || /^\/articleEditorialIntent\/(articleForm|narrativeStrategy|voiceAndTone|readerRelationship|readerDecision|humanCenter|authorStance|warmThread|emotionalArc|evidencePosture)$/.test(field);
     case "creative_outline":
       return /^\/creativeSpine\/(creativePremise|storyEngine|narrativeAnchor|openingMove|progression|proofPlan|endingMove)$/.test(field)
         || /^\/outline\/(hookAndFirstFrame|openingDirection|ending|primaryCallToAction)$/.test(field)
         || /^\/outline\/(titleDirections|unsupportedClaims)\/\d+$/.test(field)
-        || /^\/outline\/editorialIntent\/(readerDecision|humanCenter|authorStance|warmThread|emotionalArc|evidencePosture)$/.test(field)
+        || /^\/outline\/editorialIntent\/(articleForm|narrativeStrategy|voiceAndTone|readerRelationship|readerDecision|humanCenter|authorStance|warmThread|emotionalArc|evidencePosture)$/.test(field)
         || /^\/outline\/(segments|sections)\/\d+\/(segmentPurpose|speaker|speakerAction|spokenFunction|presentation|visualFunction|transition|sectionPurpose|sceneOrAction|content|readerShift|authorJudgment|avoid|visualAsset)$/.test(field)
-        || /^\/outline\/(segments|sections)\/\d+\/evidence\/\d+$/.test(field);
+        || /^\/outline\/(segments|sections)\/\d+\/evidence\/\d+$/.test(field)
+        || /^\/outline\/sections\/\d+\/design\/(contentSequence|emphasis|expressionMethod|voiceAndRhythm|attentionHook|handoff)$/.test(field);
     case "content_master":
       return /^\/master\/(title|bodyMarkdown|workingTitle)$/.test(field)
         || /^\/master\/shots\/\d+\/(shotPurpose|spokenContent|recordingDirection|sound|visualAction|composition|cameraBehavior|onScreenText|transition)$/.test(field);

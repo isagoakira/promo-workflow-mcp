@@ -382,7 +382,7 @@ function renderBaseline(value: unknown): string[] {
   const editorial = asRecord(object.articleEditorialIntent);
   if (editorial) {
     lines.push("#### 文章编辑意图");
-    renderNamedFields(lines, editorial, ["readerDecision", "humanCenter", "authorStance", "warmThread", "emotionalArc", "evidencePosture"]);
+  renderNamedFields(lines, editorial, ["articleForm", "narrativeStrategy", "voiceAndTone", "readerRelationship", "readerDecision", "humanCenter", "authorStance", "warmThread", "emotionalArc", "evidencePosture"]);
   }
   return lines.length > 0 ? lines : renderReadable(value);
 }
@@ -437,6 +437,16 @@ function renderOutline(value: unknown): string[] {
         pushNestedField(lines, "读者变化", section.readerShift);
         pushNestedField(lines, "证据", section.evidence);
         pushNestedField(lines, "视觉素材", section.visualAsset);
+        const design = asRecord(section.design);
+        if (design) {
+          lines.push("  - 写作设计：");
+          pushNestedField(lines, "内容顺序", design.contentSequence);
+          pushNestedField(lines, "展开程度", design.emphasis);
+          pushNestedField(lines, "表达手法", design.expressionMethod);
+          pushNestedField(lines, "声音与节奏", design.voiceAndRhythm);
+          pushNestedField(lines, "阅读抓手", design.attentionHook);
+          pushNestedField(lines, "交接", design.handoff);
+        }
       }
     });
   }

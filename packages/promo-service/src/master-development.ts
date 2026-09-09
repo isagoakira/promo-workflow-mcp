@@ -55,7 +55,7 @@ export function createMasterDevelopmentBrief(input: CreateMasterDevelopmentBrief
       "Every ordinary source asset must have two meaningful usages; a single-use asset needs an essential one-off reason.",
       carrier === "video"
         ? "Use the video writing and storyboard guidance returned by promo_guidance."
-        : "Load editorial-problem-router first; perform fixed reading checks before requesting only the repair cards for discovered issue codes.",
+        : "Use the locked article form, narrative strategy, voice, reader relationship and every section design as the drafting plan. Keep each section's content sequence, emphasis, expression method, rhythm, attention hook and handoff visible in the manuscript; then load editorial-problem-router first and perform fixed reading checks before requesting only the repair cards for discovered issue codes.",
       "Ask a Grill question only for a blocking choice; do not use it for local wording, timing, or ordinary reuse fixes.",
     ],
     requestedOutput: {
@@ -75,7 +75,7 @@ export function createMasterDevelopmentBrief(input: CreateMasterDevelopmentBrief
     nextCommitKind: "submit_master_draft",
     guidance: createGuidanceRequest(carrier === "video"
       ? ["human-language-writing", "promo-writing-supervision", "promo-storyboard-supervision", "product-voiceover-campaign", "promo-deliverable-exemplars", "tim-cinematic-video-proof-plan"]
-      : ["editorial-problem-router", "product-tweet-visual-proof"]),
+      : ["article-planning-router", "editorial-problem-router", "human-language-writing", "promo-writing-supervision", "product-tweet-manuscript-proof", "product-tweet-visual-proof"]),
   });
 }
 

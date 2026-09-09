@@ -19,6 +19,18 @@ test("editorial guidance detects first and loads only repairs triggered by concr
   assert.equal(repairs.resources.some((resource) => resource.id === "sentence-naturalness-repair"), false);
 });
 
+test("article planning guidance diagnoses the blueprint before selectively loading planning repairs", () => {
+  const [detection] = loadGuidance(["article-planning-router"]);
+  assert.deepEqual(detection.resources.map((resource) => resource.id), ["article-planning-checks"]);
+
+  const [repair] = loadGuidance(["article-planning-router"], {
+    planningIssueCodes: ["section_design", "rhythm_allocation"],
+  });
+  assert.deepEqual(repair.resources.map((resource) => resource.id), [
+    "article-planning-checks", "section-design-repair", "rhythm-allocation-repair",
+  ]);
+});
+
 test("human-language guidance is a high-priority gate with actionable resources", () => {
   const request = createGuidanceRequest(["promo-writing-supervision", "human-language-writing"]);
   assert.deepEqual(request.policies.map((policy) => policy.id), ["human-language-writing", "promo-writing-supervision"]);

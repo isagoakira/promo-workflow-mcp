@@ -119,21 +119,21 @@ test("workflow advances with optimistic revisions and idempotency", async () => 
   });
   assert.equal(baselineStarted.state, "ALIGNING_BASELINE");
   assert.equal(baselineStarted.agentWork.stage, "baseline_alignment");
-  assert.deepEqual(baselineStarted.agentWork.guidance.policies.map((policy) => policy.id), ["human-language-writing", "promo-writing-supervision", "product-tweet-article-contract"]);
-  assert.deepEqual(baselineStarted.agentWork.guidance.policies.map((policy) => policy.plugin), ["promo-human-language-writing", "promo-product-writing", "promo-product-tweet-editor"]);
+  assert.deepEqual(baselineStarted.agentWork.guidance.policies.map((policy) => policy.id), ["article-planning-router", "human-language-writing", "promo-writing-supervision", "product-tweet-article-contract"]);
+  assert.deepEqual(baselineStarted.agentWork.guidance.policies.map((policy) => policy.plugin), ["promo-product-tweet-editor", "promo-human-language-writing", "promo-product-writing", "promo-product-tweet-editor"]);
   assert.equal(baselineStarted.agentWork.inputs.competition.fanout, 2);
   assert.equal(baselineStarted.agentWork.inputs.competition.selectionMode, "top_p");
   assert.equal(baselineStarted.agentWork.constraints.some((constraint) => /select one primary recommendation/.test(constraint)), true);
   assert.equal(baselineStarted.agentWork.constraints.some((constraint) => /recommendationRationale/.test(constraint)), true);
   const guidance = await service.guidance(baselineStarted.workflowId);
-  assert.deepEqual(guidance.guides.map((guide) => guide.id), ["human-language-writing"]);
+  assert.deepEqual(guidance.guides.map((guide) => guide.id), ["article-planning-router", "human-language-writing"]);
   const writingGuide = (await service.guidance(baselineStarted.workflowId, ["promo-writing-supervision"])).guides.find((guide) => guide.id === "promo-writing-supervision");
   assert.ok(writingGuide);
   assert.match(writingGuide.content, /Geek Product Promo Writing/);
   assert.equal(writingGuide.resources.length, 5);
   assert.match(writingGuide.resources[1].content, /中文句子级去 AI 味规则/);
   const subsetGuidance = await service.guidance(baselineStarted.workflowId, ["promo-writing-supervision"]);
-  assert.deepEqual(subsetGuidance.guides.map((guide) => guide.id), ["human-language-writing", "promo-writing-supervision"]);
+  assert.deepEqual(subsetGuidance.guides.map((guide) => guide.id), ["article-planning-router", "human-language-writing", "promo-writing-supervision"]);
   await assert.rejects(
     service.guidance(baselineStarted.workflowId, ["promo-storyboard-supervision"]),
     /不允许加载指导/,
@@ -379,16 +379,19 @@ test("article workflow assembles a local preview before production lock and rele
   const mastering = await service.run({ workflowId: created.workflowId, expectedRevision: lockedOutline.revision, idempotencyKey: "article-master-brief" });
   assert.equal(mastering.agentWork.guidance.policies.some((policy) => policy.id === "editorial-problem-router"), true);
   assert.equal(mastering.agentWork.guidance.policies.some((policy) => policy.id === "human-language-writing"), true);
-  assert.equal(mastering.agentWork.guidance.policies.some((policy) => policy.id === "product-tweet-manuscript-proof"), false);
+  assert.equal(mastering.agentWork.guidance.policies.some((policy) => policy.id === "product-tweet-manuscript-proof"), true);
   assert.equal(mastering.agentWork.guidance.policies.some((policy) => policy.id === "product-tweet-visual-proof"), true);
   const defaultMasterGuidance = await service.guidance(created.workflowId);
-  assert.deepEqual(defaultMasterGuidance.guides.map((guide) => guide.id), ["editorial-problem-router", "human-language-writing"]);
+  assert.deepEqual(defaultMasterGuidance.guides.map((guide) => guide.id), ["article-planning-router", "editorial-problem-router", "human-language-writing"]);
+  const planningGuide = await service.guidance(created.workflowId, ["article-planning-router"], [], ["section_design"]);
+  assert.equal(planningGuide.guidanceTrace.phase, "planning-repair");
+  assert.deepEqual(planningGuide.guides[0].resources.map((resource) => resource.id), ["article-planning-checks", "section-design-repair"]);
   const detectionGuide = await service.guidance(created.workflowId, ["editorial-problem-router"]);
   assert.equal(detectionGuide.guidanceTrace.phase, "detect");
-  assert.deepEqual(detectionGuide.guides[0].resources.map((resource) => resource.id), ["fixed-reading-checks"]);
+  assert.deepEqual(detectionGuide.guides.find((guide) => guide.id === "editorial-problem-router").resources.map((resource) => resource.id), ["fixed-reading-checks"]);
   const repairGuide = await service.guidance(created.workflowId, ["editorial-problem-router"], ["long_range_logic"]);
   assert.equal(repairGuide.guidanceTrace.phase, "repair");
-  assert.deepEqual(repairGuide.guides[0].resources.map((resource) => resource.id), ["fixed-reading-checks", "long-range-logic-repair"]);
+  assert.deepEqual(repairGuide.guides.find((guide) => guide.id === "editorial-problem-router").resources.map((resource) => resource.id), ["fixed-reading-checks", "long-range-logic-repair"]);
   const missingDiagnostic = auditedReview("article", mastering);
   delete missingDiagnostic.editorialDiagnostic;
   await assert.rejects(service.commit({ workflowId: created.workflowId, expectedRevision: mastering.revision, kind: "submit_master_draft", summary: "Missing diagnostic", context: { masterDraft: validArticleMasterDraft(), masterReview: missingDiagnostic }, idempotencyKey: "article-master-missing-diagnostic" }), /editorialDiagnostic/);

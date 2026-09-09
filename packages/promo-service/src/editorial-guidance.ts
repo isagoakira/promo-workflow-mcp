@@ -1,7 +1,7 @@
 export const EDITORIAL_REVIEW_GUIDANCE = `
 已锁定文字若需按明确批注修订，使用 request_text_revision，传 annotations:[{id,revision}] 与 revisionReason；复用原回流路径，不直接改锁定文件，不把回流记成已解决。意见含糊或与当前要求冲突时先提问。
 ## 当前要求与有依据的复审
-以当前编辑契约/大纲为准，旧聊天口径不是另一份要求。articleEditorialIntent（大纲中 editorialIntent）可含 proseLooseness: null 或 0–100 整数。未设置不得擅自补值。0–24 紧凑直接；25–49 适度场景与停顿；50–74 充分观察和间接转场；75–100 偏随笔展开。该值只控制表达松紧，不是质量分，不降低事实、信息必要性、全文推进或新手可理解性。不要靠短句、问句或抓手配额逼近参数。
+以当前编辑契约/大纲为准，旧聊天口径不是另一份要求。articleEditorialIntent 的 articleForm、narrativeStrategy、voiceAndTone、readerRelationship 决定全篇组织和声音；每个 section.design 决定该段的内容顺序、展开程度、表达手法、节奏、阅读抓手和交接。主稿先落实这份蓝图，再处理措辞。articleEditorialIntent（大纲中 editorialIntent）可含 proseLooseness: null 或 0–100 整数。未设置不得擅自补值。0–24 紧凑直接；25–49 适度场景与停顿；50–74 充分观察和间接转场；75–100 偏随笔展开。该值只控制表达松紧，不是质量分，不降低事实、信息必要性、全文推进或新手可理解性。不要靠短句、问句或抓手配额逼近参数。
 先读全文与当前要求，再读修改报告。按全文关系 → 段落职责 → 句子表达审计，指出具体结构问题，而非只让相邻句更顺。C/L/I/E/S/R/A 仅作可选视角，不设总分或机械感门槛。连续两轮同类修改无改善，重新诊断上层原因。
 masterReview.audit 必须含 masterHash、requirementsHash、rationale、findings。requirementsHash 来自 promo_get.editorialContext；masterHash 用服务 contentHash(readMasterDraft(masterDraft)) 计算（递归排序对象键后的 JSON 的 SHA-256）。每条 finding 含 id、location、layer(macro/meso/micro)、severity(critical/normal)、evidence、action、preserve、acceptance、verified、verification。无问题可 findings=[]，但 rationale 应说明全文推进与读者匹配依据。
 旧版证据不能冒充新版验证；关键项未验证、事实缺口或分项未通过时不得 passed=true。草稿可 passed=false 提交展示。用户明确接受剩余编辑问题时，lock_master 的 editorialAcceptanceNote 保留取舍，不能消除事实缺口。

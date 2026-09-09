@@ -82,7 +82,7 @@ export function createCreativeOutlineBrief(input: CreateCreativeOutlineBriefInpu
       `Use ${input.budget.carrier} ${input.budget.tier} budget: ${input.budget.beatRange[0]}-${input.budget.beatRange[1]} beats.`,
       input.budget.carrier === "video"
         ? `Video segment durations must total exactly ${input.budget.targetDurationSeconds} seconds.`
-        : "Every article section needs a distinct sectionPurpose and non-empty content.",
+        : "Every article section needs a distinct sectionPurpose, non-empty content, and a section design: content sequence, expand/standard/brief emphasis, expression method, voice and rhythm, attention hook, and handoff to the next section.",
       "Apply geek-product-promo-writing at macro level only; do not write the finished manuscript or shot-by-shot script.",
       "For video, every outline segment must state its narrative task, visible promise, proof target, and transition so the service can issue a standalone outline script.",
       "Ask at most one consequential Grill question at a time, and only when it can change multiple beats or the evidence strategy.",
@@ -114,7 +114,7 @@ export function createCreativeOutlineBrief(input: CreateCreativeOutlineBriefInpu
     },
     guidance: createGuidanceRequest(input.budget.carrier === "video"
       ? ["human-language-writing", "promo-writing-supervision", "product-voiceover-campaign", "promo-deliverable-exemplars", "tim-cinematic-video-architecture"]
-      : ["human-language-writing", "promo-writing-supervision", "product-tweet-human-center-outline"]),
+      : ["article-planning-router", "human-language-writing", "promo-writing-supervision", "product-tweet-human-center-outline"]),
   });
 }
 
@@ -279,6 +279,10 @@ function readArticleEditorialIntent(value: unknown): ArticleEditorialIntent {
   if (value.proseLooseness !== undefined && value.proseLooseness !== null && (typeof value.proseLooseness !== "number" || !Number.isInteger(value.proseLooseness) || value.proseLooseness < 0 || value.proseLooseness > 100)) throw new Error("proseLooseness must be null or an integer from 0 to 100.");
   return {
     ...(value.proseLooseness === undefined ? {} : { proseLooseness: value.proseLooseness as number | null }),
+    ...(value.articleForm === undefined ? {} : { articleForm: requiredText(value.articleForm, "outline.editorialIntent.articleForm") }),
+    ...(value.narrativeStrategy === undefined ? {} : { narrativeStrategy: requiredText(value.narrativeStrategy, "outline.editorialIntent.narrativeStrategy") }),
+    ...(value.voiceAndTone === undefined ? {} : { voiceAndTone: requiredText(value.voiceAndTone, "outline.editorialIntent.voiceAndTone") }),
+    ...(value.readerRelationship === undefined ? {} : { readerRelationship: requiredText(value.readerRelationship, "outline.editorialIntent.readerRelationship") }),
     readerDecision: requiredText(value.readerDecision, "outline.editorialIntent.readerDecision"),
     humanCenter: requiredText(value.humanCenter, "outline.editorialIntent.humanCenter"),
     authorStance: requiredText(value.authorStance, "outline.editorialIntent.authorStance"),
@@ -315,8 +319,32 @@ function readArticleSections(value: unknown): ArticleOutlineSection[] {
       avoid: nullableText(section.avoid, `outline.sections[${index}].avoid`),
       transition: nullableText(section.transition, `outline.sections[${index}].transition`),
       visualAsset: nullableText(section.visualAsset, `outline.sections[${index}].visualAsset`),
+      design: readArticleSectionDesign(section.design, id, sectionPurpose, section.transition),
     };
   });
+}
+
+function readArticleSectionDesign(value: unknown, id: string, purpose: string, transition: unknown) {
+  if (value === undefined) {
+    return {
+      contentSequence: `Legacy outline: retain the existing content sequence for ${purpose}.`,
+      emphasis: "standard" as const,
+      expressionMethod: "Use the existing scene, evidence and author judgment without adding unsupported material.",
+      voiceAndRhythm: "Follow the locked editorial intent and prose looseness setting.",
+      attentionHook: `Make this section's distinct purpose (${purpose}) clear to the reader.`,
+      handoff: typeof transition === "string" && transition.trim() ? transition.trim() : `Leave the condition that lets the next section follow ${id}.`,
+    };
+  }
+  if (!isRecord(value)) throw new Error(`outline.sections.${id}.design must be an object.`);
+  if (value.emphasis !== "expand" && value.emphasis !== "standard" && value.emphasis !== "brief") throw new Error(`outline.sections.${id}.design.emphasis must be expand, standard, or brief.`);
+  return {
+    contentSequence: requiredText(value.contentSequence, `outline.sections.${id}.design.contentSequence`),
+    emphasis: value.emphasis as "expand" | "standard" | "brief",
+    expressionMethod: requiredText(value.expressionMethod, `outline.sections.${id}.design.expressionMethod`),
+    voiceAndRhythm: requiredText(value.voiceAndRhythm, `outline.sections.${id}.design.voiceAndRhythm`),
+    attentionHook: requiredText(value.attentionHook, `outline.sections.${id}.design.attentionHook`),
+    handoff: requiredText(value.handoff, `outline.sections.${id}.design.handoff`),
+  };
 }
 
 function assertBeatCount(count: number, budget: ContentBudget, label: string): void {

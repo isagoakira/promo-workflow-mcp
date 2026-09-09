@@ -32,7 +32,7 @@ export function createBaselineBrief(input: CreateBaselineBriefInput): AgentWorkC
       "Start from one concrete reader scene, then state the immediate gain before the long-term value.",
       "Propose one remembered idea, one user-facing guidance intent, and one campaign-intent card.",
       "Ask at most one consequential unresolved question at a time.",
-      ...(input.carrier === "article" ? ["Lock an articleEditorialIntent with readerDecision, humanCenter, authorStance, warmThread, emotionalArc, and evidencePosture. Every field must be source-supported or honestly framed as an editorial choice, never a fabricated memory."] : []),
+      ...(input.carrier === "article" ? ["Lock an articleEditorialIntent with articleForm, narrativeStrategy, voiceAndTone, readerRelationship, readerDecision, humanCenter, authorStance, warmThread, emotionalArc, and evidencePosture. The first four fields are the whole-article writing plan; every field must be source-supported or honestly framed as an editorial choice, never a fabricated memory."] : []),
     ],
     requestedOutput: {
       description: "A campaign-intent proposal rooted in a reader scene, with one optional high-impact scenario Grill question.",
@@ -42,13 +42,13 @@ export function createBaselineBrief(input: CreateBaselineBriefInput): AgentWorkC
     },
     validationRules: [
       "coreMessage, guidanceIntent, and every campaignIntent field must be non-empty before lock.",
-      ...(input.carrier === "article" ? ["articleEditorialIntent must contain all six editorial fields before lock."] : []),
+      ...(input.carrier === "article" ? ["articleEditorialIntent must state the article form, long-range narrative strategy, voice and reader relationship alongside its six editorial fields before lock."] : []),
       "A Grill question must name a scene, a tension, 2-3 options, one recommendation, and the deliverables it will change.",
       "Submit a proposal through promo_commit(kind=propose_baseline).",
     ],
     nextCommitKind: "propose_baseline",
     guidance: createGuidanceRequest(input.carrier === "article"
-      ? ["human-language-writing", "promo-writing-supervision", "product-tweet-article-contract"]
+      ? ["article-planning-router", "human-language-writing", "promo-writing-supervision", "product-tweet-article-contract"]
       : ["human-language-writing", "promo-writing-supervision", "tim-cinematic-video-intent"]),
     decisionCard: {
       node: 2,
@@ -84,6 +84,10 @@ function readArticleEditorialIntent(value: unknown): ArticleEditorialIntent {
   return {
     readerDecision: requiredText(value.readerDecision, "articleEditorialIntent.readerDecision"),
     ...(value.proseLooseness === undefined ? {} : { proseLooseness: readProseLooseness(value.proseLooseness) }),
+    ...(value.articleForm === undefined ? {} : { articleForm: requiredText(value.articleForm, "articleEditorialIntent.articleForm") }),
+    ...(value.narrativeStrategy === undefined ? {} : { narrativeStrategy: requiredText(value.narrativeStrategy, "articleEditorialIntent.narrativeStrategy") }),
+    ...(value.voiceAndTone === undefined ? {} : { voiceAndTone: requiredText(value.voiceAndTone, "articleEditorialIntent.voiceAndTone") }),
+    ...(value.readerRelationship === undefined ? {} : { readerRelationship: requiredText(value.readerRelationship, "articleEditorialIntent.readerRelationship") }),
     humanCenter: requiredText(value.humanCenter, "articleEditorialIntent.humanCenter"),
     authorStance: requiredText(value.authorStance, "articleEditorialIntent.authorStance"),
     warmThread: requiredText(value.warmThread, "articleEditorialIntent.warmThread"),

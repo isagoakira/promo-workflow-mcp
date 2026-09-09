@@ -16,6 +16,7 @@ import {
   WorkflowService,
   GUIDANCE_IDS,
   EDITORIAL_ISSUE_CODES,
+  ARTICLE_PLANNING_ISSUE_CODES,
   type CommitKind,
   type WorkflowCarrier,
 } from "@promo-workflow/service";
@@ -208,6 +209,7 @@ export function createPromoServer(service: WorkflowService, runtime: PromoRuntim
         workflowId: z.string().min(1),
         guideIds: z.array(z.enum(GUIDANCE_IDS)).min(1).optional(),
         issueCodes: z.array(z.enum(EDITORIAL_ISSUE_CODES)).max(6).optional().describe("固定阅读检查发现的问题码。首次检查不要传；修复阶段只传实际发现的问题。"),
+        planningIssueCodes: z.array(z.enum(ARTICLE_PLANNING_ISSUE_CODES)).max(7).optional().describe("文章设计检查发现的问题码。首次检查不要传；修复阶段只传实际发现的问题。"),
       },
       annotations: {
         readOnlyHint: true,
@@ -216,9 +218,9 @@ export function createPromoServer(service: WorkflowService, runtime: PromoRuntim
         openWorldHint: false,
       },
     },
-    async ({ workflowId, guideIds, issueCodes }) => {
+    async ({ workflowId, guideIds, issueCodes, planningIssueCodes }) => {
       try {
-        return response(await (await scoped(workflowId)).guidance(workflowId, guideIds, issueCodes));
+        return response(await (await scoped(workflowId)).guidance(workflowId, guideIds, issueCodes, planningIssueCodes));
       } catch (error) {
         return errorResponse(error);
       }

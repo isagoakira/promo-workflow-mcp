@@ -7,6 +7,7 @@ import {
   TIM_CINEMATIC_VIDEO_PROOF_PLAN_GUIDANCE,
 } from "./tim-cinematic-guidance.js";
 import { EDITORIAL_PROBLEM_ROUTER_GUIDANCE, editorialProblemResources, type EditorialIssueCode } from "./editorial-problem-guidance.js";
+import { ARTICLE_PLANNING_ROUTER_GUIDANCE, articlePlanningResources, type ArticlePlanningIssueCode } from "./article-planning-guidance.js";
 
 export interface GuidanceResource {
   id: string;
@@ -23,6 +24,12 @@ export interface GuidanceGuide {
 }
 
 const CATALOG: Record<GuidanceId, GuidanceGuide> = {
+  "article-planning-router": {
+    id: "article-planning-router",
+    title: "文章设计诊断与按需细化",
+    content: ARTICLE_PLANNING_ROUTER_GUIDANCE,
+    resources: articlePlanningResources(),
+  },
   "editorial-problem-router": {
     id: "editorial-problem-router",
     title: "编辑问题发现与按需修复",
@@ -112,10 +119,12 @@ function productTweetGuide(
   };
 }
 
-export function loadGuidance(ids: readonly GuidanceId[], options: { issueCodes?: readonly EditorialIssueCode[] } = {}): GuidanceGuide[] {
+export function loadGuidance(ids: readonly GuidanceId[], options: { issueCodes?: readonly EditorialIssueCode[]; planningIssueCodes?: readonly ArticlePlanningIssueCode[] } = {}): GuidanceGuide[] {
   return ids.map((id) => ({
     ...CATALOG[id],
-    resources: id === "editorial-problem-router" ? editorialProblemResources(options.issueCodes) : CATALOG[id].resources,
+    resources: id === "editorial-problem-router" ? editorialProblemResources(options.issueCodes)
+      : id === "article-planning-router" ? articlePlanningResources(options.planningIssueCodes)
+        : CATALOG[id].resources,
     content: CATALOG[id].content + EDITORIAL_REVIEW_GUIDANCE,
   }));
 }

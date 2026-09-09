@@ -43,6 +43,7 @@ export interface DeliverableTarget {
 }
 
 export const GUIDANCE_IDS = [
+  "article-planning-router",
   "editorial-problem-router",
   "human-language-writing",
   "promo-writing-supervision",
@@ -136,6 +137,8 @@ function uniqueGuidanceIds(ids: readonly GuidanceId[]): GuidanceId[] {
 
 function toPolicy(id: GuidanceId): GuidancePolicy {
   switch (id) {
+    case "article-planning-router":
+      return { id, plugin: "promo-product-tweet-editor", priority: "high", overview: "先审阅文章设计蓝图，再按缺口加载少量策划修复指导，让逻辑与文风一起进入主稿。", loadWhen: "推文 N2、N3 的文章契约与分部计划；主稿修订发现上游设计缺口时回流。" };
     case "editorial-problem-router":
       return { id, plugin: "promo-product-tweet-editor", priority: "high", overview: "先做固定阅读检查，再按具体问题码加载少量修复指导；不让写作者自行决定是否检查。", loadWhen: "推文 N4 初稿、实质修订与主稿审校；先单独加载本指导完成发现阶段。" };
     case "human-language-writing":

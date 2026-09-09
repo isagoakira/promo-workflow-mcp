@@ -22,6 +22,7 @@ import { buildArticleAssemblerOutput, type AcceptedArticleAssetResult } from "./
 
 import { createAgentWorkCapsule, createGuidanceRequest, type AgentWorkCapsule, type GuidanceId } from "./agent-work.js";
 import { EDITORIAL_ISSUE_CODES, type EditorialIssueCode } from "./editorial-problem-guidance.js";
+import { ARTICLE_PLANNING_ISSUE_CODES, type ArticlePlanningIssueCode } from "./article-planning-guidance.js";
 import { ArtifactStore } from "./artifacts/store.js";
 import type { ArtifactKind, ArtifactRef } from "./artifacts/types.js";
 import { createBaselineBrief, readBaselineProposal } from "./baseline.js";
@@ -214,7 +215,7 @@ export class WorkflowService {
   }
 
   /** Resolves only the full MCP-owned guidance declared by the current node. */
-  async guidance(workflowId: string, requestedIds?: readonly GuidanceId[], issueCodes: readonly EditorialIssueCode[] = []): Promise<Record<string, unknown>> {
+  async guidance(workflowId: string, requestedIds?: readonly GuidanceId[], issueCodes: readonly EditorialIssueCode[] = [], planningIssueCodes: readonly ArticlePlanningIssueCode[] = []): Promise<Record<string, unknown>> {
     const data = await this.store.read();
     const record = requireWorkflow(data.workflows[workflowId], workflowId);
     const workspaceScope = this.workspaceScopeForRecord(record);
@@ -236,6 +237,9 @@ export class WorkflowService {
     if (issueCodes.length && (record.carrier !== "article" || work.stage !== "master_development" || !allowedIds.includes("editorial-problem-router"))) {
       throw new Error("Editorial issue codes are only available during article master development; video review uses version-bound video annotations.");
     }
+    if (planningIssueCodes.length && (record.carrier !== "article" || !["baseline_alignment", "creative_outline", "master_development"].includes(work.stage) || !allowedIds.includes("article-planning-router"))) {
+      throw new Error("Article planning issue codes are available only while article planning or master development has declared the planning router.");
+    }
     const highPriorityIds = work.guidance.policies
       .filter((policy) => policy.priority === "high")
       .map((policy) => policy.id);
@@ -251,8 +255,8 @@ export class WorkflowService {
       workflowId: record.id,
       state: record.state,
       stage: work.stage,
-      guides: loadGuidance(ids, { issueCodes }),
-      guidanceTrace: { phase: issueCodes.length ? "repair" : "detect", issueCodes },
+      guides: loadGuidance(ids, { issueCodes, planningIssueCodes }),
+      guidanceTrace: { phase: issueCodes.length ? "repair" : planningIssueCodes.length ? "planning-repair" : "detect", issueCodes, planningIssueCodes },
       workspace: workspaceScope,
       workspaceDeliverables: workspaceDeliverablesFor(record.context),
     };
@@ -1343,7 +1347,7 @@ export class WorkflowService {
       },
       guidance: createGuidanceRequest(record.carrier === "video"
         ? ["human-language-writing", "promo-writing-supervision", "product-voiceover-campaign", "promo-deliverable-exemplars", "tim-cinematic-video-architecture"]
-        : ["human-language-writing", "promo-writing-supervision", "product-tweet-human-center-outline"]),
+        : ["article-planning-router", "human-language-writing", "promo-writing-supervision", "product-tweet-human-center-outline"]),
     });
   }
 
@@ -2204,7 +2208,7 @@ function decorateAgentWork(
 ): WorkflowSnapshot["agentWork"] | undefined {
   if (!work) return work;
   const guidance = carrier === "article" && work.stage === "master_development"
-    ? createGuidanceRequest(["editorial-problem-router", "human-language-writing", "product-tweet-visual-proof"])
+    ? createGuidanceRequest(["article-planning-router", "editorial-problem-router", "human-language-writing", "promo-writing-supervision", "product-tweet-manuscript-proof", "product-tweet-visual-proof"])
     : work.guidance;
   if (!scope) return { ...work, guidance };
   return {
@@ -2944,7 +2948,7 @@ function createMasterRevisionBrief(
     validationRules: ["Set incorporatesDecisionIds to the decision id in latestDecision.", "Submit through promo_commit(kind=submit_master_draft)."],
     nextCommitKind: "submit_master_draft",
     guidance: createGuidanceRequest(creativeOutline.outline.carrier === "article"
-      ? ["editorial-problem-router", "human-language-writing", "product-tweet-visual-proof"]
+      ? ["article-planning-router", "editorial-problem-router", "human-language-writing", "promo-writing-supervision", "product-tweet-manuscript-proof", "product-tweet-visual-proof"]
       : ["human-language-writing", "promo-writing-supervision", "promo-storyboard-supervision", "product-voiceover-campaign", "promo-deliverable-exemplars", "tim-cinematic-video-proof-plan"]),
     decisionCard: {
       node: 4, label: "主稿修订", known: ["一个阻塞性场景选择已确认。"],

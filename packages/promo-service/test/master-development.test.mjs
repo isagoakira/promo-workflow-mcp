@@ -52,6 +52,30 @@ test("creates a master-development Agent-work capsule", () => {
   assert.match(brief.constraints.join(" "), /storyboard/i);
 });
 
+test("article master work receives the full style stack and the locked section blueprint", () => {
+  const brief = createMasterDevelopmentBrief({
+    creativeOutline: {
+      topicId: "topic-article",
+      budget: { carrier: "article", tier: "standard", targetChineseCharacterRange: [2000, 3500], beatRange: [5, 7], targetGrillQuestionRange: [3, 5] },
+      creativeSpine: {},
+      outline: {
+        carrier: "article",
+        editorialIntent: { readerDecision: "Decide", humanCenter: "A real reader", authorStance: "Editor", warmThread: "A thread", emotionalArc: "Understanding", evidencePosture: "Bounded" },
+        openingDirection: "Open with the concrete situation.",
+        sections: [{ id: "opening", sectionPurpose: "Open", sceneOrAction: "Scene", content: "Content", readerShift: null, evidence: [], authorJudgment: null, avoid: null, transition: null, visualAsset: null, design: { contentSequence: "Scene then explanation", emphasis: "expand", expressionMethod: "Concrete scene", voiceAndRhythm: "Calm", attentionHook: "Recognition", handoff: "Need" } }],
+        titleDirections: [], unsupportedClaims: [], ending: "End", primaryCallToAction: null,
+      },
+      macroStyleReview: { skill: "geek-product-promo-writing", scope: "macro", passed: true, findings: [] },
+      confirmedAt: "2026-09-01T00:00:00.000Z",
+    },
+    selectedMaterials: ["source-1"], productContext: { name: "Demo" },
+  });
+  assert.deepEqual(brief.guidance.policies.map((policy) => policy.id), [
+    "article-planning-router", "editorial-problem-router", "human-language-writing", "promo-writing-supervision", "product-tweet-manuscript-proof", "product-tweet-visual-proof",
+  ]);
+  assert.match(brief.constraints.join(" "), /section design/i);
+});
+
 test("parses and validates a continuous video storyboard with reused source material", () => {
   const draft = readMasterDraft({
     carrier: "video",

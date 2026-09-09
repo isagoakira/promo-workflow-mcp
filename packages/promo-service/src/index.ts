@@ -6,6 +6,7 @@ export { createGuidanceRequest } from "./agent-work.js";
 export { GUIDANCE_IDS } from "./agent-work.js";
 export { loadGuidance } from "./guidance-catalog.js";
 export { EDITORIAL_ISSUE_CODES } from "./editorial-problem-guidance.js";
+export { ARTICLE_PLANNING_ISSUE_CODES } from "./article-planning-guidance.js";
 export type { EditorialIssueCode } from "./editorial-problem-guidance.js";
 export { validateEditorialLoop } from "./editorial-loop.js";
 export type { EditorialLoopBase } from "./editorial-loop.js";
