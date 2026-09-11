@@ -5,12 +5,15 @@ export type ArtifactKind =
   | "baseline_draft"
   | "baseline"
   | "decision_ledger"
+  | "rollback_receipt"
   | "creative_routes"
   | "creative_route_selection"
   | "creative_outline_draft"
   | "creative_outline"
   | "outline_script"
   | "content_master_draft"
+  | "manuscript_render"
+  | "material_preview"
   | "master_review"
   | "content_master"
   | "spoken_script"
@@ -31,7 +34,8 @@ export type ArtifactKind =
   | "production_locked"
   | "workspace_progress_audit"
   | "release_package_draft"
-  | "release_package";
+  | "release_package"
+  | "release_preview";
 
 export interface ArtifactRef {
   artifactId: string;

@@ -19,6 +19,7 @@
   "dependencies": {
     "@modelcontextprotocol/server": "2.0.0",
     "@promo-workflow/service": "0.1.0",
+    "html2canvas": "^1.4.1",
     "zod": "4.5.4"
   }
 }

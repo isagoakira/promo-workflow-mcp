@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import type { ArtifactRecord, ArtifactRef, WriteArtifactInput } from "./types.js";
@@ -61,6 +61,15 @@ export class ArtifactStore {
       throw new Error(`Artifact ${artifactId} failed its integrity check.`);
     }
     return parsed;
+  }
+
+  async remove(artifactIds: readonly string[]): Promise<void> {
+    await Promise.all([...new Set(artifactIds)].map(async (artifactId) => {
+      assertArtifactId(artifactId);
+      await unlink(this.pathFor(artifactId)).catch((error: NodeJS.ErrnoException) => {
+        if (error.code !== "ENOENT") throw error;
+      });
+    }));
   }
 
   private pathFor(artifactId: string): string {

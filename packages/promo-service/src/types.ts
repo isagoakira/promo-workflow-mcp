@@ -26,6 +26,7 @@ export type WorkflowEventKind =
   | "outline_grill_answered"
   | "outline_locked"
   | "master_draft_submitted"
+  | "manuscript_preview_rendered"
   | "master_grill_answered"
   | "master_locked"
   | "requirements_detailed"
@@ -40,6 +41,8 @@ export type WorkflowEventKind =
   | "production_locked"
   | "release_package_submitted"
   | "release_locked"
+  | "workflow_rolled_back"
+  | "workflow_restored"
   | "note_saved";
 
 export interface WorkflowEvent {

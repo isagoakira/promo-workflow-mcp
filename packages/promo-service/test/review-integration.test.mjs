@@ -14,10 +14,10 @@ test('article quality routing and video feedback coexist without crossing workfl
     await store.write({ schemaVersion: 1, workflows: { article: record('article', 'article'), video: record('video', 'video') } });
     const service = new WorkflowService(store, new ArtifactStore(join(root, 'artifacts')));
     const detect = await service.guidance('article', ['editorial-problem-router']);
-    assert.deepEqual(detect.guides[0].resources.map(r => r.id), ['fixed-reading-checks']);
-    assert.deepEqual((await service.guidance('article')).guides.map(g => g.id), ['editorial-problem-router', 'human-language-writing']);
+    assert.deepEqual(detect.guides.find(g => g.id === 'editorial-problem-router').resources.map(r => r.id), ['fixed-reading-checks']);
+    assert.deepEqual((await service.guidance('article')).guides.map(g => g.id), ['article-planning-router', 'editorial-problem-router', 'human-language-writing']);
     const repair = await service.guidance('article', ['editorial-problem-router'], ['reader_gap']);
-    assert.deepEqual(repair.guides[0].resources.map(r => r.id), ['fixed-reading-checks', 'reader-gap-repair']);
+    assert.deepEqual(repair.guides.find(g => g.id === 'editorial-problem-router').resources.map(r => r.id), ['fixed-reading-checks', 'reader-gap-repair']);
     const video = await service.guidance('video');
     assert.ok(video.guides.every(g => g.id !== 'editorial-problem-router'));
     await assert.rejects(service.guidance('video', undefined, ['reader_gap']), /only available during article/);

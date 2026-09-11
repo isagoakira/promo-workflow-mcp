@@ -30,6 +30,7 @@ import { assertOutlineGrillCapacity, createCreativeOutlineBrief, readCreativeOut
 import { unavailableCutWorkbenchBridge, runCutWorkbenchBridge, type CutWorkbenchBridge, type CutWorkbenchProductionResult } from "./cut-workbench-bridge.js";
 import { unavailableVectCutBridge, runVectCutBridge, type VectCutBridge, type VectCutDraftResult, type VectCutMediaSource } from "./vectcut-bridge.js";
 import { createMasterDevelopmentBrief, readMasterDraft, validateMasterDraft } from "./master-development.js";
+import { renderManuscript, renderMaterialPreview, renderReleasePreview } from "./manuscript-render.js";
 import { validateEditorialLoop, type EditorialLoopBase } from "./editorial-loop.js";
 import { createArticleProductionArtifacts, createProductionUnitPlan, getArticleReviewGate, getProductionControl, type ProductionUnitPlan } from "./production.js";
 import { validateProductionResults, type ProductionUnitAcceptanceResult } from "./production-results.js";
@@ -81,6 +82,7 @@ const COMMIT_TRANSITIONS = {
   answer_outline_grill: { from: "ALIGNING_OUTLINE", to: "ALIGNING_OUTLINE", event: "outline_grill_answered" },
   lock_outline: { from: "ALIGNING_OUTLINE", to: "OUTLINE_LOCKED", event: "outline_locked" },
   submit_master_draft: { from: "ALIGNING_MASTER", to: "ALIGNING_MASTER", event: "master_draft_submitted" },
+  render_manuscript_preview: { from: "ALIGNING_MASTER", to: "ALIGNING_MASTER", event: "manuscript_preview_rendered" },
   answer_master_grill: { from: "ALIGNING_MASTER", to: "ALIGNING_MASTER", event: "master_grill_answered" },
   lock_master: { from: "ALIGNING_MASTER", to: "MASTER_LOCKED", event: "master_locked" },
   submit_requirement_details: { from: "REQUIREMENTS_READY", to: "REQUIREMENTS_READY", event: "requirements_detailed" },
@@ -94,6 +96,7 @@ const COMMIT_TRANSITIONS = {
 >;
 
 export type CommitKind = keyof typeof COMMIT_TRANSITIONS
+  | "rollback_to_node"
   | "reply_annotations"
   | "request_text_revision"
   | "save_note"
@@ -323,6 +326,17 @@ export class WorkflowService {
         parentArtifactIds: artifactIdsFor(record.context),
       });
       let nextContext = withArtifact(record.context, artifact, { requirementSetArtifactId: artifact.artifactId, requirementsExecutionReview: null });
+      if (record.carrier === "article") {
+        const contentMaster = await this.contentMasterFor(record.context);
+        if (contentMaster.master.carrier !== "article") throw new Error("Article requirements require a locked article master.");
+        const source = await this.artifacts.read(requireText(record.context.contentMasterArtifactId, "contentMasterArtifactId"));
+        const materialPreview = await this.artifacts.write({
+          kind: "material_preview",
+          content: renderMaterialPreview(contentMaster.master, source.artifactId, source.contentHash, requirements.requirements),
+          parentArtifactIds: [source.artifactId, artifact.artifactId],
+        });
+        nextContext = withArtifact(nextContext, materialPreview, { materialPreviewArtifactId: materialPreview.artifactId });
+      }
       if (record.carrier === "video") {
         const contentMaster = await this.contentMasterFor(record.context);
         if (contentMaster.master.carrier !== "video") throw new Error("Video requirements require a locked video master.");
@@ -520,7 +534,40 @@ export class WorkflowService {
       throw new Error(`Workspace preflight requires ${workspaceCommitKind(workspaceBlock.id)} before ${input.kind}. ${workspaceBlock.instruction}`);
     }
 
-    if (input.kind === "request_text_revision") {
+    if (input.kind === "rollback_to_node") {
+      const targetNode = readWorkflowNode(input.context.targetNode, "targetNode");
+      if (targetNode !== 2 && targetNode !== 3) throw new Error("rollback_to_node currently supports only N2 (campaign intent) or N3 (creative outline).");
+      const removedArtifacts = artifactRefsFor(record.context).filter((artifact) => workflowNodeForArtifact(artifact.kind) >= targetNode);
+      if (!removedArtifacts.length) throw new Error("No N3-or-later deliverables are available to remove.");
+      const archiveId = `rollback_${randomUUID()}`;
+      const receipt = await this.artifacts.write({
+        kind: "rollback_receipt",
+        content: {
+          archiveId,
+          targetNode,
+          sourceRevision: record.revision,
+          sourceState: record.state,
+          archivedAt: new Date().toISOString(),
+          removedCurrentArtifacts: removedArtifacts,
+          retainedCurrentArtifacts: artifactRefsFor(record.context).filter((artifact) => workflowNodeForArtifact(artifact.kind) < targetNode),
+          reason: input.summary,
+        },
+        parentArtifactIds: artifactIdsFor(record.context),
+        revision: record.revision + 1,
+      });
+      const priorArchives = Array.isArray(record.context.rollbackArchives) ? record.context.rollbackArchives : [];
+      record.context = withArtifact(contextBeforeNode(record.context, targetNode), receipt, {
+        rollbackArchives: [...priorArchives, { archiveId, receiptArtifactId: receipt.artifactId, targetNode, sourceRevision: record.revision, sourceState: record.state, artifactRefs: removedArtifacts }],
+      });
+      record.state = workflowStateForStartNode(targetNode);
+      record.summary = input.summary;
+      record.revision += 1;
+      record.updatedAt = new Date().toISOString();
+      appendEvent(record, "workflow_rolled_back", input.summary);
+      if (this.workspace) await this.workspace.archiveFromNode(record.id, targetNode, archiveId);
+      const snapshot = await this.persistAndProject(data, record, input.idempotencyKey);
+      return snapshot;
+    } else if (input.kind === "request_text_revision") {
       if (record.state === "REJECTED") throw new Error("Rejected workflows cannot be reopened by a text annotation.");
       if (!Array.isArray(input.context.annotations) || !input.context.annotations.length) throw new Error("request_text_revision requires exact annotations[{id,revision}].");
       const nodes: number[] = [];
@@ -970,7 +1017,36 @@ export class WorkflowService {
           content: { master, review, warnings: validation.warnings, pendingQuestion, incorporatesDecisionIds: readStringArrayOrEmpty(input.context.incorporatesDecisionIds, "incorporatesDecisionIds") },
           parentArtifactIds: artifactIdsFor(afterReview),
         });
-        record.context = withArtifact(afterReview, artifact, { masterDraftArtifactId: artifact.artifactId, masterGrillCount: 0, unresolvedDecisionIds: [] });
+        const renderArtifact = master.carrier === "article"
+          ? await this.artifacts.write({
+            kind: "manuscript_render",
+            content: renderManuscript(master, artifact.artifactId, artifact.contentHash),
+            parentArtifactIds: [artifact.artifactId],
+          })
+          : undefined;
+        record.context = withArtifacts(afterReview, [artifact, ...(renderArtifact ? [renderArtifact] : [])], {
+          masterDraftArtifactId: artifact.artifactId,
+          ...(renderArtifact ? { manuscriptRenderArtifactId: renderArtifact.artifactId } : {}),
+          masterGrillCount: 0,
+          unresolvedDecisionIds: [],
+        });
+      } else if (input.kind === "render_manuscript_preview") {
+        const draft = await this.masterDraftFor(record.context);
+        if (draft.master.carrier !== "article") throw new Error("A manuscript preview is available only for article workflows.");
+        const source = await this.artifacts.read(requireText(record.context.masterDraftArtifactId, "masterDraftArtifactId"));
+        const render = await this.artifacts.write({
+          kind: "manuscript_render",
+          content: renderManuscript(draft.master, source.artifactId, source.contentHash),
+          parentArtifactIds: [source.artifactId],
+        });
+        // A renderer update must be able to repair an already committed view.
+        // Preserve the previous artifact in the append-only store, but keep one
+        // current N4 projection in the workflow context and on the workbench.
+        record.context = {
+          ...record.context,
+          manuscriptRenderArtifactId: render.artifactId,
+          artifactRefs: [...artifactRefsFor(record.context).filter(artifact => artifact.kind !== "manuscript_render"), render],
+        };
       } else if (input.kind === "answer_master_grill") {
         const draft = await this.masterDraftFor(record.context);
         if (!draft.pendingQuestion) throw new Error("No master scenario Grill question is pending.");
@@ -1102,7 +1178,22 @@ export class WorkflowService {
           content: { draft, titleId, coverId, selectedAt: new Date().toISOString() },
           parentArtifactIds: artifactIdsFor(record.context),
         });
-        record.context = withArtifact(record.context, artifact, { releasePackageArtifactId: artifact.artifactId });
+        let nextContext = withArtifact(record.context, artifact, { releasePackageArtifactId: artifact.artifactId });
+        if (draft.carrier === "article") {
+          const production = await this.productionFor(record.context);
+          if (production.carrier !== "article") throw new Error("Article release preview requires article production.");
+          const preview = await this.readArtifactContent(production.outputArtifacts.previewArtifactId, "preview") as { html: string };
+          const title = draft.titleCandidates.find(candidate => candidate.id === titleId)?.title;
+          const cover = draft.coverCandidates.find(candidate => candidate.id === coverId);
+          if (!title || !cover) throw new Error("Selected release package is incomplete.");
+          const releasePreview = await this.artifacts.write({
+            kind: "release_preview",
+            content: renderReleasePreview(preview, production.outputArtifacts.previewArtifactId, title, draft.summaryDraft.text, cover.artifactId),
+            parentArtifactIds: [artifact.artifactId, production.outputArtifacts.previewArtifactId, cover.artifactId],
+          });
+          nextContext = withArtifact(nextContext, releasePreview, { releasePreviewArtifactId: releasePreview.artifactId });
+        }
+        record.context = nextContext;
       } else {
         record.context = { ...record.context, ...input.context };
       }
@@ -1669,7 +1760,18 @@ export class WorkflowService {
 
   private async syncWorkspace(record: WorkflowRecord): Promise<void> {
     if (!this.workspace) return;
-    const scope = this.workspaceScopeForRecord(record) ?? this.workspace.scopeFor(record.id, record.carrier);
+    const canonicalScope = this.workspace.scopeFor(record.id, record.carrier);
+    const recordedScope = this.workspaceScopeForRecord(record);
+    // Older records could retain the bundled demo workspace as their scope
+    // after a project was moved. The configured WorkspaceDeliverables root is
+    // authoritative for this service instance; rebind only the generated
+    // workflow scope, never user-managed directories.
+    const scope = recordedScope
+      && recordedScope.workflowId === canonicalScope.workflowId
+      && recordedScope.carrier === canonicalScope.carrier
+      && recordedScope.root === canonicalScope.root
+      ? recordedScope
+      : canonicalScope;
     const deliverables = await this.workspace.sync({
       workflowId: record.id,
       carrier: record.carrier,
@@ -2105,6 +2207,35 @@ function contextAdditionsForImportedArtifacts(
 function applyStartPosition(record: WorkflowRecord, targetNode: number): void {
   record.state = workflowStateForStartNode(targetNode);
   record.context = { ...record.context, activeStartNode: targetNode };
+}
+
+function workflowNodeForArtifact(kind: ArtifactKind): number {
+  if (["baseline_draft", "baseline"].includes(kind)) return 2;
+  if (["creative_routes", "creative_route_selection", "creative_outline_draft", "creative_outline", "outline_script"].includes(kind)) return 3;
+  if (["content_master_draft", "manuscript_render", "master_review", "content_master", "spoken_script", "recording_execution"].includes(kind)) return 4;
+  if (["requirement_set", "material_preview", "preproduction_material_plan"].includes(kind)) return 5;
+  if (["production_plan", "production_checkpoint", "production_handoff", "production_locked", "article_document", "preview", "asset_manifest", "vectcut_draft"].includes(kind)) return 6;
+  if (["release_package_draft", "release_package", "release_preview"].includes(kind)) return 7;
+  return 0;
+}
+
+function contextBeforeNode(context: Record<string, unknown>, targetNode: number): Record<string, unknown> {
+  const keysFromNode2 = [
+    "baselineProposal", "baselineDraftArtifactId", "baselineArtifactId", "baselineGrillCount", "unresolvedDecisionIds",
+  ];
+  const keysFromNode3 = [
+    "agentWork", "creativeRoutes", "creativeRoutesArtifactId", "selectedCreativeRoute", "selectedCreativeRouteId",
+    "creativeRouteArtifactId", "creativeOutline", "creativeOutlineArtifactId", "outlineDraft", "outlineDraftArtifactId",
+    "outlineGrill", "outlineGrillCount", "contentMaster", "contentMasterArtifactId", "contentMasterDraftArtifactId", "masterDraftArtifactId", "manuscriptRenderArtifactId",
+    "masterReviewArtifactId", "masterGrill", "masterGrillCount", "requirementSetArtifactId", "requirementsExecutionReview",
+    "preproductionMaterialPlanArtifactId", "materialPreviewArtifactId", "productionPlanArtifactId", "productionUnits", "productionControl",
+    "productionLockedArtifactId", "articleDocumentArtifactId", "previewArtifactId", "assetManifestArtifactId",
+    "releasePackageDraftArtifactId", "releasePackageArtifactId", "releasePreviewArtifactId", "humanReviewReturnToNode", "supersededArtifactIds",
+    "platformContext", "releaseEvidenceSources", "cutWorkbenchResult", "vectCutDraftArtifactId",
+  ];
+  const next = without(context, targetNode === 2 ? [...keysFromNode2, ...keysFromNode3] : keysFromNode3);
+  next.artifactRefs = artifactRefsFor(context).filter((artifact) => workflowNodeForArtifact(artifact.kind) < targetNode);
+  return next;
 }
 
 function workflowStateForStartNode(node: number): WorkflowState {

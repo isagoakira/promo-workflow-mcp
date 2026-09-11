@@ -5,6 +5,115 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { createReviewHost } from "../dist/review-host.js";
+import { ArtifactStore } from "../../promo-service/dist/index.js";
+
+test("review host has a readable renderer for structured editorial checks", async () => {
+  const dataDirectory = await mkdtemp(join(tmpdir(), "promo-review-renderer-"));
+  const server = createReviewHost({ dataDirectory });
+  await new Promise((resolveListening) => server.listen(0, "127.0.0.1", resolveListening));
+  try {
+    const address = server.address();
+    assert.ok(address && typeof address !== "string");
+    const page = await (await fetch(`http://127.0.0.1:${address.port}/review.js`)).text();
+    assert.match(page, /paragraph_contribution:'段落职责'/);
+    assert.match(page, /const status=\{clear:'通过',issue:'需修复',uncertain:'待确认'\}/);
+    assert.match(page, /function renderSourceCards\(cards\)/);
+    assert.match(page, /阅读原文 ↗/);
+    assert.match(page, /long_range_logic:'全文逻辑未闭合'/);
+    assert.match(page, /const cleanExcerpt = value/);
+    assert.match(page, /data-layout-export/);
+    assert.match(page, /function exportLayoutImage\(button\)/);
+    assert.match(page, /function renderCaptureProtocol\(protocol\)/);
+    assert.match(page, /素材怎么来/);
+    assert.match(page, /这次要录什么/);
+    assert.doesNotMatch(page, /JSON\.stringify\(item\.captureProtocol/);
+    assert.match(page, /function renderEditorialAudit\(audit\)/);
+    assert.match(page, /function renderDeliveryDesk\(review\)/);
+    assert.match(page, /function copyFeishuDraft\(button\)/);
+    assert.match(page, /下载 \.MD/);
+    assert.match(page, /复制飞书稿/);
+    assert.match(page, /本轮为什么这样判断/);
+    assert.match(page, /内部校验码已隐藏/);
+    assert.doesNotMatch(page, /JSON\.stringify\(review\.audit/);
+    assert.match(page, /data-layout-export="png"/);
+    assert.match(page, /data-layout-export="jpeg"/);
+    assert.match(page, /image\/jpeg/);
+    assert.match(page, /'jpg':'png'/);
+    assert.doesNotMatch(page, /这项信息已记录在制品中/);
+    assert.doesNotThrow(() => new Function(page), "the browser payload must remain valid JavaScript");
+  } finally {
+    await new Promise((resolveClose, rejectClose) => server.close((error) => error ? rejectClose(error) : resolveClose()));
+  }
+});
+
+test("review host exports the current article as Markdown, HTML, and a Feishu clipboard payload", async () => {
+  const dataDirectory = await mkdtemp(join(tmpdir(), "promo-review-export-"));
+  const workflowId = "wf-export";
+  const artifacts = new ArtifactStore(join(dataDirectory, "artifacts"));
+  const master = await artifacts.write({
+    kind: "content_master",
+    content: { master: {
+      carrier: "article",
+      title: "一份可交付的推文",
+      alternativeTitles: [],
+      bodyMarkdown: "## 正文开始\n\n这段内容会进入两个出口。",
+      assetPlan: { sourceAssets: [], usages: [] },
+      assetPlacements: [],
+      primaryCallToAction: "继续了解产品。",
+    } },
+  });
+  await writeFile(join(dataDirectory, "workflows.json"), JSON.stringify({ schemaVersion: 1, workflows: {
+    [workflowId]: { id: workflowId, carrier: "article", state: "MASTER_LOCKED", revision: 14, summary: "Ready to export.", events: [], context: { artifactRefs: [master] } },
+  } }));
+  const server = createReviewHost({ dataDirectory });
+  await new Promise((resolveListening) => server.listen(0, "127.0.0.1", resolveListening));
+  try {
+    const address = server.address();
+    assert.ok(address && typeof address !== "string");
+    const origin = `http://127.0.0.1:${address.port}`;
+    const markdownResponse = await fetch(`${origin}/api/workflows/${workflowId}/article-export/markdown`);
+    assert.equal(markdownResponse.status, 200);
+    assert.match(markdownResponse.headers.get("content-disposition"), /promo-r14\.md/);
+    assert.match(await markdownResponse.text(), /^# 一份可交付的推文/m);
+
+    const htmlResponse = await fetch(`${origin}/api/workflows/${workflowId}/article-export/html`);
+    assert.match(htmlResponse.headers.get("content-disposition"), /promo-r14\.html/);
+    assert.match(await htmlResponse.text(), /^<!doctype html>/i);
+
+    const feishu = await (await fetch(`${origin}/api/workflows/${workflowId}/article-export/feishu`)).json();
+    assert.equal(feishu.revision, 14);
+    assert.equal(feishu.sourceArtifactId, master.artifactId);
+    assert.match(feishu.html, /style="max-width:720px/);
+    assert.match(feishu.markdown, /继续了解产品/);
+  } finally {
+    await new Promise((resolveClose, rejectClose) => server.close((error) => error ? rejectClose(error) : resolveClose()));
+  }
+});
+
+test("review host marks N4 complete after a locked master before N5 becomes current", async () => {
+  const dataDirectory = await mkdtemp(join(tmpdir(), "promo-review-locked-master-"));
+  const workflowId = "wf-locked-master";
+  const artifacts = new ArtifactStore(join(dataDirectory, "artifacts"));
+  const master = await artifacts.write({ kind: "content_master", content: { master: { bodyMarkdown: "正文" } } });
+  const review = await artifacts.write({ kind: "master_review", content: { review: { passed: true } } });
+  const render = await artifacts.write({ kind: "manuscript_render", content: { html: "<article class=\"promo-article\">正文</article>" }, parentArtifactIds: [master.artifactId] });
+  const requirements = await artifacts.write({ kind: "requirement_set", content: { requirements: [] } });
+  const materialPreview = await artifacts.write({ kind: "material_preview", content: { html: "<article class=\"promo-article\">正文</article>", stage: "planned" } });
+  await writeFile(join(dataDirectory, "workflows.json"), JSON.stringify({ schemaVersion: 1, workflows: {
+    [workflowId]: { id: workflowId, carrier: "article", state: "REQUIREMENTS_READY", revision: 12, summary: "Requirements are ready.", updatedAt: "2026-09-09T00:00:00.000Z", events: [], context: { artifactRefs: [master, review, render, requirements, materialPreview] } },
+  } }));
+  const server = createReviewHost({ dataDirectory });
+  await new Promise((resolveListening) => server.listen(0, "127.0.0.1", resolveListening));
+  try {
+    const address = server.address();
+    assert.ok(address && typeof address !== "string");
+    const payload = await (await fetch(`http://127.0.0.1:${address.port}/api/workflows/${workflowId}`)).json();
+    assert.equal(payload.steps[3].state, "complete");
+    assert.equal(payload.steps[4].state, "current");
+  } finally {
+    await new Promise((resolveClose, rejectClose) => server.close((error) => error ? rejectClose(error) : resolveClose()));
+  }
+});
 
 test("review host exposes only one workflow's projected longitudinal artifacts", async () => {
   const dataDirectory = await mkdtemp(join(tmpdir(), "promo-review-host-"));

@@ -1,8 +1,10 @@
-import { mkdir, readFile, realpath, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 
 import type { ArtifactStore } from "./artifacts/store.js";
 import type { ArtifactKind, ArtifactRef } from "./artifacts/types.js";
+import type { ArticleManuscriptMaster } from "@promo-workflow/contracts";
+import { exportArticle } from "./article-export.js";
 import {
   USER_WORKSPACE_DIRECTORIES,
   WORKFLOW_WORKSPACE_DIRECTORIES,
@@ -66,6 +68,38 @@ export class WorkspaceDeliverables {
     return scope;
   }
 
+  /** Remove generated deliverables from one content node onward. User-owned
+   * reference directories remain outside this operation. */
+  async clearFromNode(workflowId: string, node: number): Promise<void> {
+    const root = resolve(join(this.directory, workflowId));
+    const generatedDirectories = WORKFLOW_WORKSPACE_DIRECTORIES
+      .map(({ relativePath }) => relativePath)
+      .filter((relativePath) => Number.parseInt(relativePath.slice(0, 2), 10) >= node);
+    await Promise.all(generatedDirectories.map(async (relativePath) => {
+      const target = resolve(join(root, relativePath));
+      if (!target.startsWith(`${root}/`)) throw new Error("Workspace cleanup target escaped its workflow root.");
+      await rm(target, { recursive: true, force: true });
+    }));
+  }
+
+  /** Move generated current views out of the active lineage before a rollback.
+   * Immutable artifact records remain in the artifact store; this preserves the
+   * exact pre-rollback workspace projection for later inspection or restore. */
+  async archiveFromNode(workflowId: string, node: number, archiveId: string): Promise<void> {
+    const root = resolve(join(this.directory, workflowId));
+    const archiveRoot = resolve(join(root, "00-control", "archives", archiveId));
+    if (!archiveRoot.startsWith(`${root}/`)) throw new Error("Workspace archive target escaped its workflow root.");
+    for (const relativePath of WORKFLOW_WORKSPACE_DIRECTORIES.map(({ relativePath }) => relativePath).filter(path => Number.parseInt(path.slice(0, 2), 10) >= node)) {
+      const source = resolve(join(root, relativePath));
+      const target = resolve(join(archiveRoot, relativePath));
+      if (!source.startsWith(`${root}/`) || !target.startsWith(`${archiveRoot}/`)) throw new Error("Workspace archive path escaped its allowed root.");
+      await mkdir(dirname(target), { recursive: true });
+      await rename(source, target).catch((error: NodeJS.ErrnoException) => {
+        if (error.code !== "ENOENT") throw error;
+      });
+    }
+  }
+
   async sync(input: SyncWorkflowWorkspaceInput): Promise<WorkspaceDeliverableRef[]> {
     const root = resolve(join(this.directory, input.workflowId));
     const scope = input.workspaceScope && isWorkspaceScope(input.workspaceScope)
@@ -122,6 +156,27 @@ export class WorkspaceDeliverables {
         path: currentPath,
         versionPath,
       });
+    }
+
+    // Portable article handoff is deliberately a projection, not a new
+    // workflow artifact: it is regenerated from the immutable master on every
+    // sync, so an exported file can never become a second editable source.
+    if (input.carrier === "article") {
+      const masterArtifact = byKind.get("content_master") ?? byKind.get("content_master_draft");
+      if (masterArtifact) {
+        const masterRecord = await this.artifacts.read(masterArtifact.artifactId);
+        const master = articleMaster(masterRecord.content);
+        if (master) {
+          const exported = exportArticle(master, masterArtifact.artifactId, masterRecord.contentHash);
+          const exportRoot = join(root, "04-master");
+          const markdownPath = join(exportRoot, "article.md");
+          const htmlPath = join(exportRoot, "article.html");
+          await atomicWrite(markdownPath, exported.markdown);
+          await atomicWrite(htmlPath, exported.html);
+          await writeOnce(join(exportRoot, `article.${masterArtifact.artifactId}.md`), exported.markdown);
+          await writeOnce(join(exportRoot, `article.${masterArtifact.artifactId}.html`), exported.html);
+        }
+      }
     }
 
     const manifest = {
@@ -226,6 +281,7 @@ function placementFor(kind: ArtifactKind): { node: string; name: string } | null
     case "baseline_draft": return { node: "02-campaign-intent", name: "campaign-intent-draft" };
     case "baseline": return { node: "02-campaign-intent", name: "campaign-intent" };
     case "decision_ledger": return { node: "00-control", name: "decision-ledger" };
+    case "rollback_receipt": return { node: "00-control", name: "rollback-receipt" };
     case "human_review_packet": return { node: "00-control", name: "current-review" };
     case "competition_report": return { node: "00-control", name: "competition-report" };
     case "creative_routes": return { node: "03-creative-outline", name: "creative-routes" };
@@ -234,6 +290,8 @@ function placementFor(kind: ArtifactKind): { node: string; name: string } | null
     case "creative_outline": return { node: "03-creative-outline", name: "locked-outline" };
     case "outline_script": return { node: "03-creative-outline", name: "outline-script" };
     case "content_master_draft": return { node: "04-master", name: "master-draft" };
+    case "manuscript_render": return { node: "04-master", name: "master-render" };
+    case "material_preview": return { node: "05-requirements", name: "material-preview" };
     case "master_review": return { node: "04-master", name: "master-review" };
     case "content_master": return { node: "04-master", name: "locked-master" };
     case "spoken_script": return { node: "04-master", name: "spoken-script" };
@@ -251,6 +309,7 @@ function placementFor(kind: ArtifactKind): { node: string; name: string } | null
     case "vectcut_draft": return { node: "06-production", name: "vectcut-draft" };
     case "release_package_draft": return { node: "07-release", name: "release-draft" };
     case "release_package": return { node: "07-release", name: "release-package" };
+    case "release_preview": return { node: "07-release", name: "release-preview" };
     case "asset_plan":
     case "subtitle":
       return null;
@@ -262,6 +321,24 @@ function reviewMarkdown(content: unknown): string {
     return (content as { markdown: string }).markdown;
   }
   throw new Error("Human review packet must contain rendered markdown.");
+}
+
+function articleMaster(content: unknown): ArticleManuscriptMaster | null {
+  if (typeof content !== "object" || content === null) return null;
+  const master = (content as { master?: unknown }).master;
+  if (typeof master !== "object" || master === null) return null;
+  const candidate = master as Record<string, unknown>;
+  if (
+    candidate.carrier !== "article"
+    || typeof candidate.title !== "string"
+    || typeof candidate.bodyMarkdown !== "string"
+    || !Array.isArray(candidate.alternativeTitles)
+    || !Array.isArray(candidate.assetPlacements)
+    || typeof candidate.assetPlan !== "object"
+    || candidate.assetPlan === null
+    || (candidate.primaryCallToAction !== null && typeof candidate.primaryCallToAction !== "string")
+  ) return null;
+  return candidate as unknown as ArticleManuscriptMaster;
 }
 
 async function atomicWrite(path: string, body: string): Promise<void> {

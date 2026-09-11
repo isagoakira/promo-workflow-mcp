@@ -397,8 +397,25 @@ test("article workflow assembles a local preview before production lock and rele
   await assert.rejects(service.commit({ workflowId: created.workflowId, expectedRevision: mastering.revision, kind: "submit_master_draft", summary: "Missing diagnostic", context: { masterDraft: validArticleMasterDraft(), masterReview: missingDiagnostic }, idempotencyKey: "article-master-missing-diagnostic" }), /editorialDiagnostic/);
   const master = await service.commit({ workflowId: created.workflowId, expectedRevision: mastering.revision, kind: "submit_master_draft", summary: "Master", context: { masterDraft: validArticleMasterDraft(), masterReview: auditedReview("article", mastering) }, idempotencyKey: "article-master" });
   assert.equal(master.artifactRefs.some((artifact) => artifact.kind === "master_review"), true);
-  const lockedMaster = await service.commit({ workflowId: created.workflowId, expectedRevision: master.revision, kind: "lock_master", summary: "Lock master", context: {}, idempotencyKey: "article-lock-master" });
+  const masterDraftArtifact = master.artifactRefs.find((artifact) => artifact.kind === "content_master_draft");
+  const masterRenderArtifact = master.artifactRefs.find((artifact) => artifact.kind === "manuscript_render");
+  assert.ok(masterDraftArtifact);
+  assert.ok(masterRenderArtifact);
+  const masterRender = await artifacts.read(masterRenderArtifact.artifactId);
+  assert.equal(masterRender.content.sourceArtifactId, masterDraftArtifact.artifactId);
+  assert.match(masterRender.content.html, /promo-article/);
+  const refreshedMaster = await service.commit({ workflowId: created.workflowId, expectedRevision: master.revision, kind: "render_manuscript_preview", summary: "Refresh manuscript preview", context: {}, idempotencyKey: "article-refresh-manuscript-preview" });
+  const refreshedRenderArtifact = refreshedMaster.artifactRefs.find((artifact) => artifact.kind === "manuscript_render");
+  assert.ok(refreshedRenderArtifact);
+  assert.notEqual(refreshedRenderArtifact.artifactId, masterRenderArtifact.artifactId);
+  assert.equal(refreshedMaster.artifactRefs.filter((artifact) => artifact.kind === "manuscript_render").length, 1);
+  const lockedMaster = await service.commit({ workflowId: created.workflowId, expectedRevision: refreshedMaster.revision, kind: "lock_master", summary: "Lock master", context: {}, idempotencyKey: "article-lock-master" });
   const requirements = await service.run({ workflowId: created.workflowId, expectedRevision: lockedMaster.revision, idempotencyKey: "article-compile" });
+  const materialPreviewArtifact = requirements.artifactRefs.find((artifact) => artifact.kind === "material_preview");
+  assert.ok(materialPreviewArtifact);
+  const materialPreview = await artifacts.read(materialPreviewArtifact.artifactId);
+  assert.equal(materialPreview.content.stage, "planned");
+  assert.match(materialPreview.content.html, /待插入素材/);
   const detailed = await detailRequirements(service, artifacts, requirements);
   const review = await service.run({ workflowId: created.workflowId, expectedRevision: detailed.revision, idempotencyKey: "article-human-review" });
   assert.equal(review.state, "AWAITING_HUMAN_REVIEW");
@@ -436,6 +453,37 @@ test("article workflow assembles a local preview before production lock and rele
   const packaged = await service.commit({ workflowId: created.workflowId, expectedRevision: packaging.revision, kind: "submit_release_package", summary: "Package", context: { releasePackageDraft: validArticleReleaseDraft(evidence) }, idempotencyKey: "article-package" });
   const ready = await service.commit({ workflowId: created.workflowId, expectedRevision: packaged.revision, kind: "select_release_package", summary: "Select package", context: { titleId: "title-1", coverId: "cover-1" }, idempotencyKey: "article-select-package" });
   assert.equal(ready.state, "RELEASE_READY");
+  const masterDeliverable = ready.deliverables.find((deliverable) => deliverable.kind === "content_master_draft");
+  assert.ok(masterDeliverable);
+  const rolledBack = await service.commit({
+    workflowId: created.workflowId,
+    expectedRevision: ready.revision,
+    kind: "rollback_to_node",
+    summary: "Discard N3 and later deliverables; return to creative outline.",
+    context: { targetNode: 3 },
+    idempotencyKey: "article-rollback-n3",
+  });
+  assert.equal(rolledBack.state, "BASELINE_LOCKED");
+  assert.equal(rolledBack.status.node, 3);
+  assert.equal(rolledBack.artifactRefs.some((artifact) => artifact.kind === "creative_outline"), false);
+  assert.equal(rolledBack.artifactRefs.some((artifact) => artifact.kind === "content_master_draft"), false);
+  const rollbackReceipt = rolledBack.artifactRefs.find((artifact) => artifact.kind === "rollback_receipt");
+  assert.ok(rollbackReceipt);
+  const receipt = await artifacts.read(rollbackReceipt.artifactId);
+  assert.equal(receipt.content.targetNode, 3);
+  assert.equal(receipt.content.removedCurrentArtifacts.some((artifact) => artifact.kind === "content_master_draft"), true);
+  await assert.rejects(readFile(masterDeliverable.path, "utf8"), /ENOENT/);
+  const rolledBackToBaseline = await service.commit({
+    workflowId: created.workflowId,
+    expectedRevision: rolledBack.revision,
+    kind: "rollback_to_node",
+    summary: "Discard N2 and later deliverables; return to campaign intent.",
+    context: { targetNode: 2 },
+    idempotencyKey: "article-rollback-n2",
+  });
+  assert.equal(rolledBackToBaseline.state, "TOPIC_LOCKED");
+  assert.equal(rolledBackToBaseline.status.node, 2);
+  assert.equal(rolledBackToBaseline.artifactRefs.some((artifact) => artifact.kind === "baseline"), false);
 });
 
 test("intermediate-node startup audits the project package and uses Grill instead of forcing rollback", async () => {

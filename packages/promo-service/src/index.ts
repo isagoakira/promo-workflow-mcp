@@ -19,6 +19,7 @@ export {
   readCreativeOutlineDraft,
 } from "./creative-outline.js";
 export { createMasterDevelopmentBrief, readMasterDraft, validateMasterDraft } from "./master-development.js";
+export { exportArticle } from "./article-export.js";
 export { buildArticleAssemblerOutput, createArticleAssemblerReference } from "./article-assembler-adapter.js";
 export { unavailableCutWorkbenchBridge, UnavailableCutWorkbenchBridge, runCutWorkbenchBridge } from "./cut-workbench-bridge.js";
 export { CutWorkbenchStdioBridge } from "./cut-workbench-stdio-bridge.js";
