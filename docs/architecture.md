@@ -27,9 +27,9 @@ promo-video-article-workflow (required)
 optional task packs
   -> promo-human-language-writing (high-priority writing gate)
   -> promo-product-writing
-  -> promo-product-tweet-editor (APPSO 指定风格按文章节点拆分)
+  -> promo-product-tweet-editor (Specified APPSO style split by article node)
   -> promo-video-preproduction
-  -> promo-tim-cinematic-storycraft (视频 N2/N3/N4 技术影像策划)
+  -> promo-tim-cinematic-storycraft (Technical film planning for video N2/N3/N4)
 
 optional production adapters
   -> promo-cut-workbench-adapter

@@ -1,12 +1,12 @@
 ---
 name: product-tweet-human-center-outline
-description: 在活动中的 Promo Workflow 文章 N3 节点，把已锁定的 APPSO 风格契约展开为创意路线和大纲。用于选择主导文章类型，安排注意力动线、比例带、段落职责、转场与视觉证明；不在此节点写完整主稿。
+description: Expand the locked APPSO-style contract into creative routes and an outline at N3 of an active Promo Workflow article. Choose a dominant article type and arrange attention flow, proportions, paragraph roles, transitions, and visual proof; do not write the full master here.
 ---
 
-# APPSO 风格文章大纲
+# APPSO-style article outline
 
-调用 `promo_guidance` 并加载 `product-tweet-human-center-outline`。把已锁定的 `articleEditorialIntent` 原样继承到 `outline.editorialIntent`，不得在大纲阶段悄悄改换叙述者或文章命题。
+Call `promo_guidance` and load `product-tweet-human-center-outline`. Inherit locked `articleEditorialIntent` unchanged into `outline.editorialIntent`; do not silently change the narrator or article proposition.
 
-先从产品体验、版本发现、技术解释、编辑推荐中选择一个主导类型，再设计注意力状态变化，而不是先列功能标题。每个章节都要写清：主要动作、承载材料、读者变化、作者判断、证据位置、转场和避免事项。
+Choose one dominant type: product experience, version discovery, technical explanation, or editorial recommendation. Design changes in attention rather than starting with feature headings. Each section specifies its main action, supporting material, reader change, author judgment, evidence location, transition, and things to avoid.
 
-比例带是场景、体验、解释、判断和余味的注意力预算，不是硬性字数或章节配额。允许根据事实材料偏移。开头优先从真实小动作、熟悉摩擦、改观瞬间或有证据的惊喜进入；结尾高度必须由前文材料挣得。
+Proportion ranges budget attention for scenes, experience, explanation, judgment, and lingering impression; they are not rigid word-count or section quotas. Adjust to factual material. Open with a real small action, familiar friction, a changed perception, or an evidenced surprise. The ending's broader meaning must be earned by preceding material.

@@ -33,7 +33,7 @@ When an actionable annotation targets already locked text outside the current ed
 
 An `agent_work` capsule is a task brief, not a node deliverable. After `promo_run` returns one, continue the same control loop: load its guidance, produce the requested output, validate it, and submit `agentWork.nextCommitKind` before ending the turn. Stop earlier only for a genuinely blocking user decision, missing evidence or authority, or an explicit tool failure. Never report a node as delivered merely because its task brief now appears in the workbench.
 
-The workbench may display that capsule as **当前任务简报** while the current node has no artifact yet. This prevents a blank review surface, but it does not satisfy the node. The formal deliverable remains the artifact created by the declared commit. At REQUIREMENTS_READY, first submit_requirement_details with baseArtifactId and details[{requirementId,productionProcedure}]; include a substantive executionReview:{passed:true,evidence} only when steps and every usageId are executable. Draft details can be saved without that review. Then request the existing human review.
+The workbench may display that capsule as **Current task brief** while the current node has no artifact yet. This prevents a blank review surface, but it does not satisfy the node. The formal deliverable remains the artifact created by the declared commit. At REQUIREMENTS_READY, first submit_requirement_details with baseArtifactId and details[{requirementId,productionProcedure}]; include a substantive executionReview:{passed:true,evidence} only when steps and every usageId are executable. Draft details can be saved without that review. Then request the existing human review.
 
 After every `promo_run` or `promo_commit`, use the returned revision for the next call. Never advance because a later output “looks ready.”
 
@@ -46,13 +46,13 @@ Use the capsule’s `decisionCard.node` and `decisionCard.label` when available;
 `promo_get`, `promo_run`, and `promo_commit` return `workbench`. The MCP starts this local desk by default; after the opening read and every state-changing call, proactively surface its workflow-specific URL. When the host can open a local webpage, open it as well. The workbench shows seven-node progress, evidence, text annotations and version comparisons. Document text remains read-only; saved comments never replace commit, revision or human approval. If `workbench.url` is null, call `promo_review` once and report its explicit startup problem.
 
 ```text
-工作流状态｜节点 {编号或业务名称}
-已锁定：{已确认的选题、基调或上游制品；没有则写“尚未锁定”}
-当前：{这一节点正在处理或允许执行的唯一动作}
-下一步：{下一项交付物，或用户现在需要作出的一个决定}
+Workflow status | Node {number or business label}
+Locked: {confirmed topic, tone, or upstream artifacts; otherwise “Nothing locked yet”}
+Current: {the one action being handled or permitted at this node}
+Next: {next deliverable or the one decision needed from the user}
 ```
 
-Do not emit a duplicate note for a pure read that leaves the node unchanged. At a human gate, `下一步` must say “等待你的确认” plainly, rather than implying the Agent will continue.
+Do not emit a duplicate note for a pure read that leaves the node unchanged. At a human gate, `Next` must say “Waiting for your confirmation” plainly, rather than implying the Agent will continue.
 
 ## Rules that protect the workflow
 

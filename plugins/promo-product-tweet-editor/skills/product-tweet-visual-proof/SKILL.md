@@ -1,12 +1,12 @@
 ---
 name: product-tweet-visual-proof
-description: 在活动中的 Promo Workflow 文章 N4 或 N6 节点规划和核验截图、录屏、图示等视觉材料。用于让视觉证明产品行为、解释机制并服务文章节奏；不得用装饰图替代事实证据。
+description: Plan and verify screenshots, screen recordings, diagrams, and other visuals at N4 or N6 of an active Promo Workflow article. Make visuals prove behavior, explain mechanisms, and support pacing; never substitute decoration for factual evidence.
 ---
 
-# APPSO 风格视觉证明
+# APPSO-style visual proof
 
-调用 `promo_guidance` 并加载 `product-tweet-visual-proof`。
+Call `promo_guidance` and load `product-tweet-visual-proof`.
 
-每个视觉使用位必须绑定：紧邻主张、编辑目的、可观察结果、证据角色和锚点。截图或例子应出现在读者刚想看清前述行为的位置；它既可以证明事实，也可以在密集解释后帮助文章呼吸，但装饰作用不能冒充证明作用。
+Each visual usage binds to a neighboring claim, editorial purpose, observable result, evidence role, and anchor. Place screenshots or examples where the reader wants to inspect the preceding behavior. They can prove facts or provide breathing room after dense explanation, but decoration cannot masquerade as proof.
 
-真实界面动作、输入、输出、比较和结果必须保留可复核路径。一个源素材可以支持多个不同使用位，但不能因复用而远离它所证明的判断。没有可行证明路径时，上游应收窄或删除主张。
+Actual interface actions, inputs, outputs, comparisons, and results need reviewable evidence paths. One source asset may support multiple usages without drifting away from the judgment it proves. If proof is infeasible, narrow or remove the claim upstream.

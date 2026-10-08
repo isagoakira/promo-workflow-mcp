@@ -1,29 +1,29 @@
-# 文章质量闭环与视频审片整合
+# Integrating article quality loops and video review
 
-两个会话的改动位于同一工作目录。本次整合保留全部未提交变更，不迁移或重写真实工作流数据，不合并 CutWorkBench 远端尚未整合的 Mac 更新。
+Changes from two chats occupy the same working directory. This integration preserves all uncommitted changes without migrating or rewriting real workflow data, or merging the Mac updates not yet integrated into the CutWorkBench remote.
 
-## 保留的职责
+## Retained responsibilities
 
-- 文章主稿：固定阅读检查 → 按问题码加载修复卡 → 引用旧稿和新稿证据 → 复审。自动通过仍不等于人工批准。
-- 视频策划：Promo 提供分镜、口播和录制素材计划，继续使用视频专属指导。
-- 视频制作：CutWorkBench 单制作节点处理实际素材、预览与修改；表达方向变化返回 Promo。
-- 视频审片：点、时间段、多段和框选绑定不可变版本；修改回执不代替人工确认；未解决意见阻止成品锁定。
-- 工作台：文章和视频保留各自的审核数据及门槛，共用右栏视觉规范；视频支持双视频对照。
+- Article masters: fixed reading checks → on-demand repair cards by issue code → evidence from old/new text → recheck. Automatic passing remains distinct from human approval.
+- Video planning: Promo supplies storyboards, voiceover, and recording material plans using video-specific guidance.
+- Video production: CutWorkBench's single execution node handles actual media, previews, and revisions; expression-direction changes return to Promo.
+- Video review: points, ranges, multiple ranges, and rectangles bind to immutable versions. Revision receipts do not replace human confirmation; unresolved feedback blocks final locking.
+- Workbench: articles and videos retain separate review data and gates, share right-sidebar styling, and support dual-video comparison.
 
-## 本次接缝修正
+## Integration fixes
 
-1. 文章任务说明与按需指导保持一致，去掉要求预加载旧指导的残留指令，明确 judgment / repairs / recheck 的交付结构。
-2. 文章问题码只允许用于文章主稿节点，不得误送入视频指导请求。
-3. 新增同一服务下文章与视频并存的回归测试，检查旧任务指导更新、按需修复、载体隔离与只读查询不改版本。
+1. Align article task briefs with on-demand guidance; remove obsolete preloading instructions and specify judgment / repairs / recheck deliverables.
+2. Permit article issue codes only at the article master node, never in video guidance requests.
+3. Add regression tests for articles/videos in the same service, checking old-task guidance updates, on-demand repair, carrier isolation, and read-only queries preserving revisions.
 
-## 验证入口
+## Validation entry points
 
-- `npm run build` 与 `npm test`。
-- `packages/promo-mcp/test/text-desk-browser.mjs`、`video-desk-browser.mjs`：批注、旧版定位、修改对照和人工确认。
-- `scripts/test-cutbench-integration.mjs`：实际 CutWorkBench 接口、真实媒体与门控。
+- `npm run build` and `npm test`.
+- `packages/promo-mcp/test/text-desk-browser.mjs` and `video-desk-browser.mjs`: annotations, original-version anchors, revision comparisons, and human confirmation.
+- `scripts/test-cutbench-integration.mjs`: actual CutWorkBench interfaces, real media, and gates.
 
-真实媒体兼容性需单独在交付浏览器验证。当前测试样片的 360p 兼容版约 2 MB，原片和旧批注未覆盖。合成媒体测试不能替代实际样片播放验收。
+Verify real-media compatibility separately in the delivery browser. The current sample's 360p-compatible version is about 2 MB; the original and old annotations were not overwritten. Synthetic-media tests do not replace actual sample playback acceptance.
 
-## 本次结果
+## Results
 
-2026-09-08：全量构建通过；Promo 70 项测试（MCP 13、service 57）、CutWorkBench 104 项测试通过；文章与视频浏览器回归、真实 Promo→CutWorkBench 联调均通过。所有改动保留在本地未提交状态，未推送远端，未迁移真实内容数据。
+2026-09-08: full build passed; 70 Promo tests (13 MCP, 57 service) and 104 CutWorkBench tests passed. Article/video browser regressions and real Promo→CutWorkBench integration passed. Changes remained local and uncommitted, with no remote push or real-content migration.

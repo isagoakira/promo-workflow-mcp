@@ -7,7 +7,7 @@ Turn the locked topic and baseline into two linked outputs in the same node:
 1. one cross-media creative spine;
 2. one outline adapted to the current carrier and length tier.
 
-This node decides what the content is doing and how it moves. For video it also locks a **大纲脚本**: a segment-level bridge between the creative route and the storyboard. It does not write the finished article, the line-by-line spoken script, the shot-by-shot production plan, or SRT subtitles.
+This node decides what the content is doing and how it moves. For video it also locks a **outline script**: a segment-level bridge between the creative route and the storyboard. It does not write the finished article, the line-by-line spoken script, the shot-by-shot production plan, or SRT subtitles.
 
 ## State transition
 

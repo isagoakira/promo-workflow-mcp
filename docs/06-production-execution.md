@@ -56,7 +56,7 @@ Later video changes branch the locked Cut Workbench revision instead of overwrit
 
 VectCut is an optional low-install path, selected with `context.videoBackend: "vectcut"`. It does not create a second workflow. The existing production-unit route, acceptance results, `promo_run`, one pending review action, and `lock_production` remain unchanged.
 
-After all units are accepted, the adapter requires a URL mapping for every locked `assetUsageId`. It creates a VectCut draft, places the supplied clips on the locked master timeline, imports Node 5's SRT, saves the editable draft, and stores only its draft reference as an immutable Promo artifact. The next action is a single human review in VectCut/剪映/CapCut.
+After all units are accepted, the adapter requires a URL mapping for every locked `assetUsageId`. It creates a VectCut draft, places the supplied clips on the locked master timeline, imports Node 5's SRT, saves the editable draft, and stores only its draft reference as an immutable Promo artifact. The next action is a single human review in VectCut/Jianying/CapCut.
 
 - A change sends the affected unit back through `update_production_units`; that invalidates the old draft and the next `promo_run` rebuilds it.
 - A review accepts the draft with `vectcutDraftAccepted: true` and a non-empty `vectcutReviewNote` in `lock_production`.

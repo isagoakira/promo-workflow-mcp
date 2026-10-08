@@ -1,14 +1,14 @@
 ---
 name: product-tweet-preview-review
-description: 在活动中的 Promo Workflow 文章 N6 节点审查本地预览，检查 APPSO 风格整体迁移、视觉锚点、语义保持与事实边界。仅用于预览组装后、生产锁定前；不在此节点静默重写主稿。
+description: Review the local preview at N6 of an active Promo Workflow article for overall APPSO style transfer, visual anchors, semantic preservation, and factual boundaries. Use after preview assembly and before production locking; do not silently rewrite the master.
 ---
 
-# APPSO 风格预览审查
+# APPSO-style preview review
 
-调用 `promo_guidance` 并加载 `product-tweet-preview-review`。审查渲染后的实际阅读顺序，不重新发明文章。
+Call `promo_guidance` and load `product-tweet-preview-review`. Review actual rendered reading order without reinventing the article.
 
-读取当前文字版本、reviewFeedback 和指导中的版本化审计规则。批注已回复不代表问题已验证；旧版验证不移植为新版结论。检查 productionProcedure 与素材实际使用位是否对应。文风松紧沿用当前契约的 proseLooseness，不因排版变更另设数值。
+Read the current text version, reviewFeedback, and versioned audit rules. Replied annotations do not imply verified resolution; old verification does not transfer to new conclusions. Check productionProcedure against actual asset usages. Retain current proseLooseness rather than changing it because layout changed.
 
-先检查真实门和视觉锚点，再评估编辑目光、叙述者与读者距离、人的温度、宏观动线、段落呼吸、句子声音和外层包装。判断的是方法相似度，不是原句或词语重合度。
+Check the truth gate and visual anchors first, then editorial focus, narrator-reader distance, human warmth, macro flow, paragraph rhythm, sentence voice, and outer packaging. Assess similarity of method rather than overlap in original sentences or words.
 
-输出真实状态、分项依据、首要漂移层和三项优先修复。事实或语义变化回流主稿；结构变化回流大纲；文章契约变化回流 N2。预览审查不能借修版式之名改写已经锁定的判断。
+Report actual status, evidence per aspect, the primary drift layer, and three priority repairs. Factual/semantic changes return to the master; structural changes to the outline; contract changes to N2. Layout repair cannot rewrite locked judgments.
