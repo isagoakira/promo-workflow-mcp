@@ -1,20 +1,20 @@
 ---
 name: product-tweet-manuscript-proof
-description: 在活动中的 Promo Workflow 文章 N4 节点撰写或实质修订完整主稿，并迁移 APPSO 的整体编辑风格。用于宏观选材与动线、中观段落呼吸、微观句子声音和主稿风格审查；不用于视频脚本或单独的发布包装。
+description: Write or substantially revise a complete master at N4 of an active Promo Workflow article while transferring APPSO overall editorial style. Cover macro selection and flow, paragraph rhythm, sentence voice, and master style review; not video scripts or standalone release packaging.
 ---
 
-# APPSO 风格文章主稿
+# APPSO-style article master
 
-调用 `promo_guidance` 并加载 `product-tweet-manuscript-proof`。只在已锁定的命题、文章契约、章节职责和事实边界内扩写。
+Call `promo_guidance` and load `product-tweet-manuscript-proof`. Expand only within locked propositions, article contract, section roles, and factual boundaries.
 
-应用指导中的 proseLooseness 映射及版本化 audit 规则，先读 reviewFeedback 中的原文批注与当前要求，再读上次修改报告。全文推进独立于散文化程度检查；局部顺滑不能代替全文结构。允许未通过的完整草稿进入工作台，不以“已优化”的自述宣布通过。一次修改可回应多条批注，但逐条保留回复和验证依据。
+Apply the guidance's proseLooseness mapping and versioned audit rules. Read original annotations in reviewFeedback and current requirements before the previous revision report. Check whole-article progression independently of looseness; local fluency cannot replace structure. Allow complete failed drafts into the workbench instead of declaring success based on “optimized” claims. One change may address multiple comments, but retain individual replies and verification.
 
-按三遍完成：
+Use three passes:
 
-1. 宏观层先修编辑目光、材料取舍与注意力动线；
-2. 中观层安排观察、解释、验证、转折、判断和回望的交替；
-3. 微观层处理具体名词、动作、技术密度、长短句、幽默与句尾节奏。
+1. Macro: editorial focus, material selection, and attention flow.
+2. Paragraph: alternate observation, explanation, verification, turns, judgment, and reflection.
+3. Sentence: concrete nouns, actions, technical density, sentence-length variation, humor, and ending rhythm.
 
-作者通过选择、节奏、反应和有边界的判断在场，不靠连续“我”、虚构经历、泛化亲密或热闹口号。量化只在真实改变判断时出现；质性观察本身可以成为有效支持。
+The author's presence comes through selection, pacing, reactions, and bounded judgments, not repeated “I,” invented experience, generalized intimacy, or loud slogans. Quantify only when numbers change the judgment; qualitative observations can provide valid support.
 
-提交前先过真实门，再按“编辑目光 → 叙述者与读者 → 温度与情绪 → 宏观动线 → 段落呼吸 → 句子声音 → 外层包装”审查。必须给出一条简短的 `product-tweet-editor` 审查轨迹，说明首要漂移层、已修复项和未解决缺口。
+Before submission, pass the truth gate, then review editorial focus → narrator and reader → warmth and emotion → macro flow → paragraph rhythm → sentence voice → outer packaging. Include a short `product-tweet-editor` review trace identifying the primary layer of drift, fixes, and unresolved gaps.

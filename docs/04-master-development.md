@@ -7,7 +7,7 @@ Expand the locked creative spine and carrier outline into one complete, reviewab
 - video: a time-aligned storyboard master;
 - article: a complete manuscript master.
 
-This node decides the exact content and presentation. For video it locks three pre-production handoffs: **分镜稿** (the locked storyboard master), **口播台词稿**, and **口播录制执行稿**. It does not shoot, generate, edit, render, lay out, publish, or export production derivatives.
+This node decides the exact content and presentation. For video it locks three pre-production handoffs: **storyboard** (the locked storyboard master), **spoken-line script**, and **voiceover recording instructions**. It does not shoot, generate, edit, render, lay out, publish, or export production derivatives.
 
 ## State transition
 

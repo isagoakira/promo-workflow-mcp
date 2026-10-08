@@ -3,146 +3,148 @@ name: human-language-writing
 description: Apply a high-priority human-language gate to Chinese product-promotion writing whenever a Promo Workflow drafts or reviews campaign intent, creative outlines, articles, spoken lines, scripts, titles, introductions, summaries, or revisions. Use it before general style polishing; diagnose and repair forced contrasts, inflated metaphors, repetitive hype, and culturally detached translated phrasing while preserving evidence boundaries and never inventing personal experience.
 ---
 
-# 人话写作监督
+# Natural-language writing supervision
 
-## 核心判断
+## Core judgment
 
-人话不是口水话，也不是把书面语全部改成聊天腔。人话是：在可核验的事实边界内，具体的人对具体的人说清楚一个具体问题，并承担自己的判断。
+Natural language is neither filler nor a blanket conversion of written prose into chat. It means a concrete person explaining a concrete problem to another concrete person within verifiable factual boundaries, taking responsibility for their judgment.
 
-写作时优先保证这条链：
+Prioritize this chain:
 
-**具体的人 → 具体的处境 → 可观察的细节 → 清楚的判断 → 有边界的行动建议。**
+**Concrete person → concrete situation → observable detail → clear judgment → bounded action recommendation.**
 
-如果一段话只有“价值、赋能、升级、深度、温度、确定性”一类抽象词，却说不出谁在什么时候遇到了什么、做了什么、看到了什么，就先停下润色，回到人和事。
+If a passage contains only abstractions such as “value,” “empowerment,” “upgrade,” “depth,” “warmth,” and “certainty,” without saying who encountered what, when, what they did, or what they saw, stop polishing and return to people and events.
 
-本 Skill 是高优先级门禁。当前节点同时加载其他文风、推文、口播或分镜指导时，先执行本 Skill 的人话审查，再做平台适配和句子抛光。证据真实性始终高于表达好听；人话门禁不能授权新增事实。
+This skill is a high-priority gate. Apply it before other style, article, voiceover, storyboard, or platform guidance. Evidence authenticity outranks attractive expression; this gate authorizes no new facts.
 
-## 先锁定人话锚点
+## Establish human anchors first
 
-开始改写前，先在心里或工作流现有的 brief/review 字段中回答：
+Before rewriting, answer these mentally or in existing workflow brief/review fields:
 
-1. **谁在说**：作者是实测者、旁观者、解释者还是产品方？哪些第一人称经历确实发生过？
-2. **对谁说**：读者此刻卡在哪里，而不是笼统的“帮助用户提升效率”？
-3. **发生了什么**：一个具体场景、动作、状态变化或失败点是什么？
-4. **看到了什么**：能被截图、录屏、日志、操作记录或来源直接支持的细节是什么？
-5. **我怎么判断**：作者真正想说的结论是什么？它改变读者哪一个判断？
-6. **不能说什么**：缺少证据、缺少亲历、尚未验证的部分是什么？
+1. **Who speaks?** Tester, observer, explainer, or product representative? Which first-person experiences actually occurred?
+2. **To whom?** Where is the reader stuck right now, beyond “help users improve efficiency”?
+3. **What happened?** What concrete scene, action, state change, or failure occurred?
+4. **What was observed?** Which details have direct support from screenshots, recordings, logs, operation records, or sources?
+5. **What is the judgment?** What conclusion does the author actually want to communicate, and which reader judgment does it change?
+6. **What cannot be said?** What lacks evidence, firsthand experience, or verification?
 
-没有真实经历时，不要用“我亲自”“我发现”“大家都在”制造温度。可以诚实地写成编辑判断、公开资料结论或待验证问题，并明确证据缺口。
+Without real experience, do not manufacture warmth through “I personally,” “I found,” or “everyone is.” Use honest editorial judgments, public-source conclusions, or questions to verify, with explicit evidence gaps.
 
-## 四类 AI 八股：识别、解释、修复
+## Four kinds of formulaic AI prose: diagnose, explain, repair
 
-### 1. 强行的“不是……而是……”
+The Chinese phrases below are diagnostic examples, not banned words. English explanations make their meaning accessible while preserving the original patterns this Chinese-writing skill checks.
 
-只有前后两项确实构成排他性对比时才保留。若只是为了显得有观点，改成直接陈述，或把真正的冲突写成场景。
+### 1. Forced “not … but …” contrasts
 
-- 风险：句子先搭一个稻草人，再把普通结论包装成洞察。
-- 直改：把“不是为了追逐热点，而是基于深刻洞察”改成“我想先说清楚一个具体问题：这次重跑为什么又丢了状态。”
-- 真对比可以留：如果“演示能跑”和“下一次还能复现”确实是两个不同目标，就明确写出这两个目标的差异。
+Retain only genuinely exclusive contrasts. If a contrast merely sounds opinionated, state the conclusion directly or show the real conflict as a scene.
 
-### 2. 悬空的比喻与宏大叙事
+- Risk: construct a straw man and package an ordinary conclusion as insight.
+- Repair: “不是为了追逐热点，而是基于深刻洞察” (“not to chase trends, but based on profound insight”) → “我想先说清楚一个具体问题：这次重跑为什么又丢了状态。” (“I want to explain one specific problem first: why did this rerun lose its state again?”).
+- Real contrasts can remain: if “the demo runs” and “it is reproducible next time” are genuinely distinct goals, explain their difference.
 
-删掉比喻后，判断仍应更清楚；如果删掉后只剩空话，说明比喻正在遮蔽证据。优先写动作、状态和结果，不用“时代路口、命运钥匙、达摩克利斯之剑”等通用大词替代事实。
+### 2. Unsupported metaphors and grand narratives
 
-- 风险：把一个局部功能提升成时代、人性或行业的宏大命题，读者无法核验。
-- 直改：把“市场站在历史十字路口”改成“这次测试里，第二次重跑仍然找不到上次保存的状态”。
-- 比喻可以留：它必须带来不可替代的画面或解释，并且不抬高事实范围。
+Removing a metaphor should leave a clearer judgment. If only empty claims remain, the metaphor is hiding missing evidence. Prefer actions, states, and results to generic grand phrases such as “时代路口” (“the crossroads of an era”), “命运钥匙” (“the key to destiny”), or “达摩克利斯之剑” (“the sword of Damocles”).
 
-### 3. 强迫式重复与夸张
+- Risk: promote a local feature into a claim about an era, human nature, or an entire industry that readers cannot verify.
+- Repair: “市场站在历史十字路口” (“the market stands at a historic crossroads”) → “这次测试里，第二次重跑仍然找不到上次保存的状态” (“In this test, the second rerun still could not find the previously saved state”).
+- Retain a metaphor only when it adds indispensable imagery or explanation without expanding factual scope.
 
-同一判断只说一次；相邻句不要反复换词宣称“干货、获得感、专业、深度、底层逻辑”。“不仅……更是……”“全面赋能”“系统性升级”“深度拆解”出现时，先问它具体增加了哪个事实。
+### 3. Compulsive repetition and exaggeration
 
-- 风险：文字变长了，信息没有增加，作者像在向读者索要“这很重要”的认同。
-- 直改：把“深度拆解底层逻辑，帮助你获得真正的专业提升”改成“我把这一步拆成三次重跑，先看它会不会丢状态，再看丢在哪里。”
-- 保留条件：重复只有在节奏、强调或结构上产生新作用时才保留，并确保每次出现都推进了新的动作或判断。
+State the same judgment once. Avoid adjacent sentences repeatedly claiming “干货” (“substantial practical content”), “获得感” (“a sense of benefit”), “专业” (“professionalism”), “深度” (“depth”), or “底层逻辑” (“underlying logic”). For “不仅……更是……” (“not only … but also …”), “全面赋能” (“comprehensive empowerment”), “系统性升级” (“systematic upgrade”), or “深度拆解” (“deep breakdown”), ask what specific fact is added.
 
-### 4. 脱离文化的翻译腔
+- Risk: more words without more information, asking readers to agree that the content is important.
+- Repair: “深度拆解底层逻辑，帮助你获得真正的专业提升” (“deeply dissect the underlying logic to deliver real professional improvement”) → “我把这一步拆成三次重跑，先看它会不会丢状态，再看丢在哪里。” (“I split this step into three reruns, first checking whether state is lost, then where it disappears.”).
+- Retain repetition only when it adds a new rhythmic, emphatic, or structural function and advances an action or judgment.
 
-检查搭配是否像真实中文作者会说的话，而不是把英文商业词逐字搬过来。优先使用本地、具体、能落到动作上的词；不要用“中文性格”作空泛结论，也不要假装拥有作者没有提供的文化记忆。
+### 4. Culturally detached translated phrasing
 
-- 风险：句子语法正确，却没有说话的人；“赋能、抓手、闭环、生态、范式、颗粒度”连成串时尤其要回到实际动作。
-- 直改：把“通过智能化能力赋能团队形成闭环”改成“它把输入、运行记录和结果留在同一处，下一次排查不用从头猜。”
-- 术语可以留：产品确实需要的技术名词保留，并在第一次出现时用动作或结果解释，不让术语承担情绪。
+Check whether combinations sound like a real Chinese author rather than literal translations of English business language. Prefer local, concrete words tied to actions. Do not make vague claims about “Chinese character” or invent cultural memories absent from the author's material.
 
-## 人话改写流程
+- Risk: grammatical sentences with no speaker, especially strings of “赋能、抓手、闭环、生态、范式、颗粒度” (“empowerment, handles/levers, closed loops, ecosystems, paradigms, granularity”). Return to actual actions.
+- Repair: “通过智能化能力赋能团队形成闭环” (“empower the team to form a closed loop through intelligent capabilities”) → “它把输入、运行记录和结果留在同一处，下一次排查不用从头猜。” (“It keeps inputs, run records, and results together, so the next investigation does not start with guesswork.”).
+- Necessary technical terms remain, explained at first mention through actions or results; do not use terminology to carry emotion.
 
-### 第一步：先做事实和角色盘点
+## Rewriting process
 
-从锁定的主题、证据和产品材料中分出三类内容：
+### Step 1: inventory facts and roles
 
-- 已观察事实：可以指出来源、操作、界面状态、输出或限制。
-- 作者判断：作者对这些事实的解释、取舍和推荐。
-- 待补信息：需要向用户追问，或必须在文案中降级为“尚未验证”。
+Separate the locked topic, evidence, and product materials into:
 
-不要用修辞掩盖第三类内容。不要把 AI 找到的资料写成作者亲历，也不要把用户没有说过的痛点写成“普遍现象”。
+- Observed facts with identifiable sources, operations, interface states, outputs, or limits.
+- Author judgments interpreting those facts, tradeoffs, and recommendations.
+- Missing information requiring a user question or an explicit “unverified” label.
 
-### 第二步：只写一条人话骨架
+Do not hide the third category with rhetoric, turn AI-retrieved sources into firsthand experience, or label unprovided user pain points as universal phenomena.
 
-用 3–6 句朴素句子先说明：读者遇到的场景、发生的卡点、产品做了什么、观察到什么、作者怎样判断。暂时不追求标题感、金句感和完整段落。
+### Step 2: write one plain-language skeleton
 
-推荐骨架：
+Use 3–6 plain sentences for the reader's situation, obstacle, product action, observation, and author judgment. Do not optimize for catchy titles, quotable lines, or complete paragraphs yet.
 
-**场景/卡点 → 一个动作 → 可见结果 → 限制或代价 → 作者判断 → 下一步。**
+Suggested skeleton:
 
-一段只承担一个主要动作。需要多个判断时拆段，不用连接词把它们粘成气势。
+**Situation/obstacle → one action → visible result → limitation/cost → author judgment → next step.**
 
-### 第三步：让 AI 做它擅长的事
+Each paragraph has one main action. Split multiple judgments into paragraphs rather than joining them with connectors for rhetorical force.
 
-AI 可以：整理证据、对照多个来源、找出重复、提出两三个结构路线、解释术语、给出同一判断的不同自然说法、标出缺口。
+### Step 3: use AI for its strengths
 
-AI 不可以：代替作者发明观点、补写未发生的体验、制造情绪、把普通功能升级成行业结论、把没有来源的数据或反馈写进稿子。
+AI may organize evidence, compare sources, identify repetition, suggest two or three structural routes, explain terms, offer natural alternatives for the same judgment, and identify gaps.
 
-如果人话锚点缺失，先提出一个最小追问，例如“你当时具体看到了什么状态？”不要用五段通用背景替用户填空。
+AI must not invent the author's opinions, fabricate experiences or emotions, promote ordinary features into industry-wide conclusions, or add unsourced data/feedback.
 
-### 第四步：做句子手术
+If a human anchor is missing, ask one minimal question such as “What exact state did you see then?” rather than filling the gap with five generic background paragraphs.
 
-每次修改都留下可解释的理由：
+### Step 4: revise sentences deliberately
 
-1. 指出原句中实际承担的判断。
-2. 标记它属于强行对比、悬空比喻、重复夸张、翻译腔、抽象填充或证据越界哪一类。
-3. 把抽象词换成动作、对象、状态、数量、时间或可观察结果。
-4. 重新读一遍，保留自然的停顿和长短句变化。
-5. 若原句的修辞确实有作用，就说明保留理由，不要为了“去 AI 味”机械抹平个性。
+Keep an explainable reason for each change:
 
-### 第五步：做“读出来”验收
+1. Identify the original sentence's actual judgment.
+2. Classify forced contrast, unsupported metaphor, repetition/exaggeration, translated phrasing, abstract filler, or evidence overreach.
+3. Replace abstractions with actions, objects, states, quantities, times, or observable results.
+4. Reread, retaining natural pauses and sentence-length variation.
+5. If rhetoric serves a real purpose, explain why it stays rather than flattening personality mechanically to remove an “AI feel.”
 
-把成稿当成口播或当面解释来读。以下任一项为“否”，就回到对应句子修复：
+### Step 5: read-aloud acceptance
 
-- 第一段是否在尽早告诉读者一个具体场景或明确判断？
-- 读者能否指出文中一个人、一个动作和一个结果？
-- 每个“我”是否都有来源，每个“我们”是否没有冒充群体经验？
-- 删除形容词后，事实和判断是否仍站得住？
-- 关键段落是否每句都在推进，而不是换词重复同一结论？
-- 读起来是否像一个有立场的人在说，而不是报告腔或广告腔？
-- 标题、简介和 CTA 是否只承诺正文已经证明的事？
+Read the finished draft as voiceover or face-to-face explanation. Repair corresponding sentences if any answer is no:
 
-## 接入 Promo Workflow 的节点规则
+- Does the first paragraph promptly give a concrete scene or clear judgment?
+- Can readers identify a person, action, and result?
+- Is every “I” supported, and does every “we” avoid impersonating collective experience?
+- Do facts and judgments survive removal of adjectives?
+- Does each sentence in key paragraphs advance the argument rather than rephrase the same conclusion?
+- Does it sound like a person with a position rather than a report or advertisement?
+- Do titles, introductions, and CTAs promise only what the body proves?
 
-本 Skill 不改变工作流的状态机、证据边界和提交契约；它把人话审查写入当前节点已有的输出或 review 字段，不另造与契约冲突的顶层字段。
+## Promo Workflow node rules
 
-- **N2 宣传意图**：先锁读者当下场景、一个具体麻烦和一句作者判断；`coreMessage` 不写口号，`guidanceIntent` 写读者下一步要做什么。
-- **N3 创意大纲**：每个 beat/section 写清动作、观察、证明目标和判断；`macroStyleReview` 记录人话风险与修复方向。
-- **N4 主稿/修订**：先按场景—动作—结果—判断扩写，再做四类八股审查；`masterReview.writingStyle` 要给出可定位的句子级发现，而不是只写“有 AI 味”。
-- **N5/N6 素材与预览**：画面、截图和口播必须互相证明；字幕和图注也走人话门禁，不能用抽象口号替代缺失证据。
-- **N7 发布包装**：标题、摘要、简介和 CTA 只压缩已证明的判断；删掉夸大承诺，不用宏大主题给普通功能加戏。
+This skill preserves the state machine, evidence boundaries, and submission contract. Record its review in existing node output/review fields, without conflicting top-level fields.
 
-当其他指导要求“更有冲击力”“更专业”时，先把要求翻译成具体动作、结果或读者变化；不要靠更大的形容词实现。
+- **N2 intent**: establish the reader's current situation, one concrete problem, and one author judgment. `coreMessage` is not a slogan; `guidanceIntent` states the reader's next action.
+- **N3 outline**: each beat/section specifies action, observation, proof goal, and judgment. `macroStyleReview` records risks and repair directions.
+- **N4 master/revision**: expand situation → action → result → judgment, then inspect the four cliches. `masterReview.writingStyle` provides locatable sentence findings, not merely “sounds like AI.”
+- **N5/N6 materials/preview**: images, screenshots, and voiceover support one another. Subtitles and captions also pass the gate; abstract slogans cannot replace evidence.
+- **N7 release**: titles, summaries, introductions, and CTAs compress proven judgments. Remove exaggerated promises instead of dressing ordinary features in grand themes.
 
-## 输出约定
+Translate “more impactful” and “more professional” into concrete actions, results, or reader changes before choosing larger adjectives.
 
-在不破坏当前节点契约的前提下，完成一次人话审查后至少保留这五类信息：
+## Output contract
 
-1. **人话锚点**：谁、对谁、什么场景、什么细节、什么判断。
-2. **风险发现**：原文片段、风险类型、为什么影响理解。
-3. **修复选择**：改成什么、删掉什么、哪些修辞有意保留。
-4. **证据缺口**：无法补写的经历、数据、反馈或文化判断。
-5. **验收结论**：通过、需要局部修订，或因事实缺口阻塞。
+Without breaking the node contract, retain at least:
 
-审查结果要服务于当前交付物：大纲给结构级判断，主稿给段落和句子级判断，发布包装给承诺边界。不要把一份泛泛的风格报告当成完成工作。
+1. **Human anchors**: speaker, reader, situation, detail, judgment.
+2. **Findings**: original excerpts, risk type, and effects on comprehension.
+3. **Repair choices**: replacements, removals, and intentionally retained rhetoric.
+4. **Evidence gaps**: experiences, data, feedback, or cultural judgments that cannot be invented.
+5. **Acceptance conclusion**: passed, local revision needed, or blocked by factual gaps.
 
-## 参考资料与辅助脚本
+The review serves the deliverable: structural findings for outlines, paragraph/sentence findings for masters, promise boundaries for release packaging. A generic style report is not task completion.
 
-- 四类症状需要逐项诊断时，读取 `references/four-ai-cliches.md`。
-- 需要补足作者、读者和场景时，读取 `references/human-anchor-card.md`。
-- 需要决定当前 Promo Workflow 节点如何落字段时，读取 `references/promo-stage-gate.md`。
-- 有本地纯文本草稿时，可以运行 `scripts/human_language_lint.py <draft.md>` 获取提示。它只产生待复核信号，不能代替语义判断，也不能把命中词当作硬禁词。
+## References and helper script
+
+- Read `references/four-ai-cliches.md` for detailed diagnosis.
+- Read `references/human-anchor-card.md` to establish author, reader, and situation.
+- Read `references/promo-stage-gate.md` to map findings to node fields.
+- For local plain-text drafts, run `scripts/human_language_lint.py <draft.md>` for review signals. It cannot replace semantic judgment or turn matched words into hard bans.

@@ -1,33 +1,33 @@
-# 人话锚点卡
+# Human anchor card
 
-在起草或大改前先填这张卡。不能填的字段不要用通用文案补齐，写成“待补”并决定是否需要向用户追问。
+Complete before drafting or substantial revision. Mark unavailable fields “Missing” rather than filling them with generic copy, then decide whether to ask the user.
 
 ```text
-说话的人：
-真实身份/关系：
-目标读者：
-读者此刻的具体场景：
-场景里的卡点或张力：
-作者实际观察到的细节：
-产品/行动做了什么：
-可以核验的结果：
-作者的判断：
-读者要改变的一个判断：
-下一步行动：
-明确不能声称的内容：
+Speaker:
+Actual identity/relationship:
+Target reader:
+Reader's concrete current situation:
+Obstacle or tension:
+Details actually observed by the author:
+What the product/action did:
+Verifiable result:
+Author judgment:
+One reader judgment to change:
+Next action:
+Claims explicitly outside the evidence:
 ```
 
-## 合格标准
+## Acceptance
 
-一张合格的锚点卡至少有：一个读者场景、一个动作、一个观察细节、一句作者判断和一个证据边界。缺少其中任意一项，先补事实或缩小主张，再开始抛光。
+A valid card has at least one reader situation, action, observed detail, author judgment, and evidence boundary. Fill factual gaps or narrow the claim before polishing if any are missing.
 
-## 最小追问
+## Minimal questions
 
-优先问能改变整段表达的问题：
+Prefer questions that change the whole passage:
 
-- “你当时具体看到了什么状态或结果？”
-- “这件事发生在什么操作、时间或限制下？”
-- “这是你亲自做过的，还是根据材料得出的判断？”
-- “读者看完只需要改变哪一个判断？”
+- “What exact state or result did you see then?”
+- “Under what operation, time, or constraints did it occur?”
+- “Did you do this yourself, or infer it from materials?”
+- “What one judgment should readers change afterward?”
 
-不要用一次追问索要完整人生故事；一个准确细节通常比一段虚构的情绪更有用。
+Do not request a whole life story in one question; one accurate detail usually helps more than invented emotion.

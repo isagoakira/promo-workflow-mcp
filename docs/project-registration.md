@@ -1,29 +1,29 @@
-# 按工作区找回工程
+# Recover projects by workspace
 
-工程名册保存“工作区在哪里、原流程数据在哪里”，不复制视频、素材或工程。工作台和 MCP 使用同一份名册；换会话或重启后，仍能找到已经登记的项目。
+The project registry stores workspace locations and original workflow-data locations without copying videos, materials, or projects. The workbench and MCP share the registry, so registered projects remain discoverable across chats and restarts.
 
-## 怎么用
+## Usage
 
-- 第一次连接已有工程：告诉助手“登记这个工作区”，调用 `promo_register_project(rootDirectory)`。它只检查该目录自身、`data`、`.promo-workflow/data` 和当前实例的数据目录，不递归扫描磁盘。
-- 如果旧数据放在别处：同时提供 `dataDirectory`。只有状态记录确实属于指定工作区才接受登记。
-- 查看全部工程：调用 `promo_projects`。工作台上方的“已登记工程”也提供状态检查和打开入口。
-- 继续某个工程：用它的流程编号调用原有 `promo_get`、`promo_run`、`promo_commit` 或审片工具。系统回到原数据目录执行，仍遵守版本检查、工作区权限及人工审核。
-- MCP 启动时自动登记当前数据目录里已有的有效工作区，再检查名册。新建流程后也自动登记；登记失败不会撤销已经保存的流程，会给出明确提示。
+- Connect an existing project: ask the assistant to register the workspace with `promo_register_project(rootDirectory)`. It checks only that directory, `data`, `.promo-workflow/data`, and the current instance's data directory, without recursively scanning disks.
+- If old data is elsewhere, also supply `dataDirectory`. Registration is accepted only when state records actually belong to the specified workspace.
+- List projects with `promo_projects`. The workbench's Registered Projects section also offers status checks and open links.
+- Continue a project using its workflow ID with existing `promo_get`, `promo_run`, `promo_commit`, or video review tools. Execution returns to the original data directory and retains version checks, workspace permissions, and human review.
+- MCP startup registers valid existing workspaces in the current data directory, then checks the registry. New workflows are registered automatically. Registration failure does not undo a saved workflow and produces an explicit message.
 
-## 检查什么
+## Checks
 
-工作区和状态记录是否可读、当前节点和版本、视频制作阶段与轮次、交付物记录是否存在。目录离线、记录损坏、交付物缺失分别提示。不同数据目录出现同一流程编号时，禁止猜测选用哪个副本。
+Check workspace/state readability, current node and revision, video production stage and round, and deliverable-record existence. Offline directories, damaged records, and missing deliverables have distinct messages. If the same workflow ID appears in multiple data directories, the system refuses to guess which copy to use.
 
-文件存在不代表内容合格；扫描不播放或复制全部视频，不替代人工审片，不自动推进节点。没有 Promo 状态记录的普通素材目录不能自动推断进度，需要先按已有的项目导入与进度审核流程接入。
+File existence does not establish content quality. Scanning does not play or copy all videos, replace human review, or advance nodes. Ordinary media directories without Promo state cannot yield inferred progress; import them through existing project-import and progress-review procedures.
 
-## 保存位置
+## Storage
 
-默认名册是用户目录下的 `.promo-workflow/projects.json`，可通过 `PROMO_PROJECT_REGISTRY` 指定独立位置。登记按真实路径去重，并发登记使用文件锁，损坏的名册不会被覆盖。不同工作区可以使用不同的原数据目录。
+The default registry is `.promo-workflow/projects.json` under the user directory. Override it with `PROMO_PROJECT_REGISTRY`. Registration deduplicates real paths, uses file locks for concurrency, and refuses to overwrite a damaged registry. Different workspaces may retain different original data directories.
 
-该版本不自动猜测工程搬家后的路径，不静默替换已登记数据源。目录迁移或重复副本需要先核对。
+This version does not guess moved-project paths or silently replace registered data sources. Verify directory migrations and duplicate copies first.
 
-## 验证
+## Validation
 
-隔离测试覆盖跨工作区登记、重启恢复、路径别名去重、未登记兄弟工程隔离、目录离线、交付物缺失、重复编号、损坏名册保护，以及 MCP 和工作台向原数据目录写回。测试不修改真实项目。
+Isolated tests cover cross-workspace registration, restart recovery, path-alias deduplication, isolation from unregistered sibling projects, offline directories, missing deliverables, duplicate IDs, damaged-registry protection, and MCP/workbench writes to original data directories. Tests do not modify real projects.
 
-2026-09-08：82 项测试通过。工作台实际加载了两个独立测试工作区，从同一页面切换到另一工程的审片视频，未复制素材。
+2026-09-08: 82 tests passed. The workbench loaded two independent test workspaces and switched to another project's review video on the same page without copying media.

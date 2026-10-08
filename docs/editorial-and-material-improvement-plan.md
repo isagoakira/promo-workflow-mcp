@@ -1,247 +1,253 @@
-# Promo Workflow 精简改进计划
+# Promo Workflow: streamlined improvement plan
 
-日期：2026-09-05 · 计划修订 3 · 首版工程已实施，验收与边界见第 12 节
+Date: 2026-09-05 · Plan revision 3 · Initial implementation complete; acceptance and boundaries are in section 12
 
-本计划替代上一版扩展方案。依据是本轮文章制作中实际出现的失败，以及用户最新约束：框架要简洁、可审计，避免不断叠加指标、模块和门控。
+This plan replaces the earlier expansion proposal. It responds to failures observed during this article-production round and the user's latest constraint: keep the framework simple and auditable, without continually adding metrics, modules, and gates.
 
-本次将文字选区批注、下一轮自动处理和轻量版本回看纳入同一闭环：当前要求 → 交付物 → 人工批注/编辑审计 → 修改与验证 → 新版及处理回执。批注是审计输入，版本是现有制品的历史视图，不增设平行协作系统。
+Text-selection annotations, next-turn processing, and lightweight version review belong to one loop: current requirements → deliverable → human annotations/editorial audit → revision and verification → new version and processing receipts. Annotations are audit inputs; versions are historical views of existing artifacts, not a parallel collaboration system.
 
-## 1. 范围与复杂度约束
+## 1. Scope and complexity constraints
 
-只围绕三个现有对象改进：
+Improve only three existing objects:
 
-| 对象 | 职责 | 处理方式 |
+| Object | Responsibility | Approach |
 | --- | --- | --- |
-| 当前要求 | 明确为谁写、写什么、怎样表达 | 扩展现有编辑契约，通过现有决定记录追踪修订 |
-| 当前交付物 | 保存正文或可执行素材需求 | 扩展现有制品；沿用版本、引用和工作台 |
-| 审计记录 | 接收人工批注、指出问题、指导修改、说明结论依据 | 批注与处理回执关联现有 masterReview、制品和事件记录；不新增独立评分服务 |
+| Current requirements | Specify the audience, content, and expression | Extend the existing editorial contract; track revisions through existing decisions |
+| Current deliverable | Store the article or executable material requirements | Extend existing artifacts; reuse versions, references, and the workbench |
+| Audit record | Receive annotations, identify problems, guide revisions, and explain conclusions | Link annotations and receipts to existing masterReview, artifacts, and events; no separate scoring service |
 
-不新增工作流节点、审批层级、独立问题状态机、评分数据库或自动调权系统。每项新增字段或规则必须对应一个已发生的失败或明确交互需求，并说明被替代的旧做法。沿用现有 revision、artifact 引用和决定记录，不重复造版本机制。批注处理状态从批注修订和回执推导，不另维护一套易失同步的工单状态。
+Do not add workflow nodes, approval levels, independent issue state machines, scoring databases, or automatic weight tuning. Each new field or rule must address an observed failure or explicit interaction need and identify the old practice it replaces. Reuse revisions, artifact references, and decisions rather than rebuilding versioning. Derive annotation processing status from annotation revisions and receipts instead of maintaining a separate ticket state that can drift.
 
-计划阶段只修改本文；随后用户授权实施。工程实现不推进活动工作流，也不改写本次宣传文章。
+During planning, only this document was edited; the user subsequently authorized implementation. Engineering implementation does not advance the active workflow or rewrite this campaign article.
 
-## 2. 问题与最小修复
+## 2. Problems and minimum fixes
 
-| 已发生的问题 | 最小修复 | 替代的旧做法 |
+| Observed problem | Minimum fix | Replaced practice |
 | --- | --- | --- |
-| “自然—太散—局部过紧”反复摆动 | 一个散文化参数，绑定 Skill 行为；全文逻辑单独检查 | 每轮临时解释自然度、按问句数量制造抓手 |
-| 受众改成新手，下游仍读到开发者口径 | 从当前编辑契约读取有效要求，并引用修订决定 | 从聊天与多份旧制品各自猜测当前要求 |
-| 改写报告宣布通过，却未解决问题 | 审计附原文、原因、修复和验证依据 | 用“已加强结构”等自述当通过证据 |
-| 采集协议在素材编译中丢失 | 传递 captureProtocol，增加 productionProcedure | 只显示类型与用途，另附不被消费的手册 |
-| 文件已保存但节点不可审阅 | 对当前制品做存储、展示、消费的一致性检查 | 将保存备注、任务简报或文件存在视为交付 |
-| 针对某段提出意见，需要回聊天复制原文 | 文字自由选区批注，支持跨段和多条；下一轮统一读取 | 依靠聊天中的模糊位置描述 |
-| 改稿后无法追溯某条意见怎样处理 | 批注绑定原版，回执链接新版差异与验证 | 覆盖旧稿、仅报告“已修改” |
+| Repeated swings between “natural,” “too loose,” and “locally too tight” | One prose looseness parameter tied to skill behavior, with separate whole-article logic checks | Reexplaining naturalness each round or counting questions to manufacture hooks |
+| Audience changes to beginners, but downstream work retains developer assumptions | Read effective requirements from the current editorial contract and cite the revision decision | Guessing current requirements from chat and multiple old artifacts |
+| Revision report declares success without resolving the problem | Audit includes original text, cause, fix, and verification evidence | Treating “structure strengthened” as proof of success |
+| Capture protocol disappears during material compilation | Pass captureProtocol through and add productionProcedure | Showing only type/purpose and attaching an unconsumed manual |
+| File is saved but the node is not reviewable | Check storage, display, and consumption consistency for the current artifact | Treating notes, task briefs, or file existence as delivery |
+| Paragraph feedback requires copying text back into chat | Free text-selection annotations, including cross-paragraph selections and multiple comments, read together next turn | Vague location descriptions in chat |
+| Revisions do not show how individual comments were handled | Bind comments to the original version; link receipts to new-version differences and verification | Overwriting old text and reporting only “updated” |
 
-已核实的代码位置：
-- contracts/src/workflow.ts 已有 SourceAssetPlan.captureProtocol。
-- promo-service/src/workflow-service.ts 的 toMasterAssetUsages 未传递该协议。
-- requirements-compiler.ts 的需求类型缺少承接字段。
-- review-host.ts 和 human-review.ts 的需求渲染只覆盖粗粒度说明。
-- 视频前期素材计划已有采集协议传递，修复时保留该能力，避免文章和视频各维护一套新协议。
-- review-host.ts 当前提供读取接口和更新通知；主要视图通过整体替换 innerHTML 刷新，加入批注时必须保护选区、输入草稿及滚动位置。
-- workflow-service.ts 的 get 提供流程快照，已有 revision 和幂等处理。批注读取与提交应接入服务层，不从浏览器直接改工作区投影文件。
+Verified code locations:
 
-## 3. 当前要求：少量控制项，统一继承
+- contracts/src/workflow.ts already has SourceAssetPlan.captureProtocol.
+- promo-service/src/workflow-service.ts does not pass it through in toMasterAssetUsages.
+- requirements-compiler.ts lacks the receiving requirement field.
+- review-host.ts and human-review.ts render only coarse requirement descriptions.
+- Video preproduction material plans already pass capture protocols; preserve that capability rather than creating separate article and video protocols.
+- review-host.ts provides read interfaces and update notifications. Main views refresh by replacing innerHTML wholesale; annotation support must preserve selections, draft input, and scroll position.
+- workflow-service.ts get supplies snapshots, revisions, and idempotency. Annotation reads/writes belong in the service layer, not direct browser edits to workspace projections.
 
-在现有编辑契约内保留受众、文章用途、必要术语/知识假设、事实与展示边界，加入 proseLooseness。优先复用已有字段，实施时确认其唯一读取入口；不另建平行契约。
+## 3. Current requirements: a few controls, inherited consistently
 
-proseLooseness 为可空的 0–100 整数。它表达用户想要的松紧度，不是质量分：
-- 0–24：直接紧凑，较少铺垫和旁白。
-- 25–49：适度场景、旁白与停顿。
-- 50–74：更充分的观察与间接转场。
-- 75–100：偏随笔，允许更长展开与回望。
+Retain audience, article purpose, required terminology/knowledge assumptions, factual limits, and presentation boundaries in the existing editorial contract, and add proseLooseness. Prefer existing fields and verify their single authoritative read path before implementation; do not create a parallel contract.
 
-参数只影响表达方式。事实准确、信息必要性、全文推进和受众可理解性始终有效。不设短句配额、主题句配额或固定抓手间隔。本次文章的 35 仅可作为试验建议，不能追认为用户已选择的数值。
+proseLooseness is a nullable integer from 0 to 100. It expresses desired looseness, not a quality score:
 
-用户修订通过现有决定记录更新对应要求，保留来源引用；下游读当前要求，旧材料作为历史依据。冲突必须显式标出，不能继续同时执行两套口径。受众或命题变化按既有回流机制处理，不新增审批。
+- 0–24: direct and compact, with little setup or commentary.
+- 25–49: moderate scenes, commentary, and pauses.
+- 50–74: fuller observation and indirect transitions.
+- 75–100: essay-like, allowing longer development and reflection.
 
-Skill 负责把参数翻译为可执行指导：
-- 先检查全文目的和章节关系。
-- 再按设定判断场景展开、旁白和停顿是否适当。
-- 最后调整句子，说明哪些表达有意保留。
-- 不要求所有文章按时间线、单一人物或三问结构写作。
+The parameter changes expression only. Factual accuracy, necessary information, whole-article progression, and audience comprehension always apply. Do not impose short-sentence quotas, topic-sentence quotas, or fixed hook intervals. A value of 35 for this article is only an experimental suggestion, not a retrospectively accepted user choice.
 
-修改仓库 plugins/ 下的文章契约、主稿与预览相关 Skill，并同步服务指导。使用一套映射或一致性测试，避免宿主 Skill 与服务文案分叉；不直接编辑安装缓存。
+User revisions update the corresponding requirements through existing decision records, retaining source references. Downstream work reads current requirements; old material remains historical evidence. Flag conflicts explicitly rather than executing two incompatible message sets. Audience or proposition changes use existing return paths without new approvals.
 
-## 4. 审计记录：同一份记录完成指导与复审
+Skills translate the parameter into actionable guidance:
 
-扩展 masterReview，引用本次采用的要求版本和交付物版本。沿用现有 finding 容器；每条问题只需要：
+- Check the whole article's purpose and section relationships first.
+- Assess scene development, commentary, and pauses against the setting.
+- Adjust sentences last and explain intentionally retained expressions.
+- Do not require every article to follow a timeline, one character, or a three-question structure.
 
-| 信息 | 要求 |
+Update article contract, master, and preview skills under plugins/ and synchronize service guidance. Use a shared mapping or consistency test to prevent host skills and service text from diverging; do not edit installation caches directly.
+
+## 4. Audit record: one record for guidance and recheck
+
+Extend masterReview with the requirements and deliverable versions used. Reuse the existing finding container; each issue needs only:
+
+| Information | Requirement |
 | --- | --- |
-| 位置、层级 | 当前版本中的全文、段落或句子定位 |
-| 问题与依据 | 原文片段、结构关系或可复核信号 |
-| 重要程度 | 关键或普通；关键需说明为何阻断本篇用途 |
-| 修改指导 | 明确动作、保留内容及完成条件 |
-| 验证结果 | 修改后依据；未验证或未解决时如实记录 |
+| Location and level | Whole-article, paragraph, or sentence location in the current version |
+| Problem and evidence | Original excerpt, structural relationship, or reproducible signal |
+| Importance | Critical or ordinary; critical issues must explain why they block this article's purpose |
+| Revision guidance | Concrete action, content to preserve, and completion conditions |
+| Verification result | Post-revision evidence; record honestly if unverified or unresolved |
 
-不建立独立的问题流转状态机。复审在新版本审计中引用原问题，记录是否解决及证据即可。无问题时给出简短的全文推进和读者匹配依据，不为凑字段制造问题。
+Do not build an independent issue lifecycle. A new-version audit can reference the original issue and record resolution and evidence. If there are no issues, briefly justify whole-article progression and reader fit rather than inventing findings to fill fields.
 
-C/L/I/E/S/R/A 作为可选标签和 Skill 检查视角，不要求每轮七项打分。一次问题可关联多个维度，但只处理一次。首版不做总分、机械感指数或复杂权重。
+C/L/I/E/S/R/A are optional tags and skill review perspectives, not seven mandatory scores per round. One issue may relate to multiple dimensions but is handled once. The initial version has no total score, mechanical-writing index, or complex weights.
 
-字数、句段长度、重复表达等可用现有检测能力辅助定位；检测结果不是语义结论。Embedding、句长均匀度、实体数不作为自动通过或重写依据。
+Existing detectors for word counts, sentence/paragraph length, and repeated phrasing may help locate issues, but their output is not a semantic conclusion. Embeddings, sentence-length uniformity, and entity counts must not automatically trigger acceptance or rewriting.
 
-执行顺序固定为全文关系 → 段落职责 → 句子表达。最终复审先读当前正文与当前要求，再核对修改说明，避免沿着“已经修好”的自述给结论。
+Review order is fixed: whole-article relationships → paragraph roles → sentence expression. Final recheck reads current text and requirements before checking the revision report, avoiding conclusions led by “already fixed” claims.
 
-复审同时核对：
-- 原问题是否解决；
-- 受众、事实与已认可内容是否退化；
-- 所引用的依据是否来自当前版本。
+Recheck also verifies:
 
-连续两轮同类修改未改善时，重新诊断上层原因；不盲目重复润色，也不据此自动要求用户重新批准。
+- Whether the original issue is resolved.
+- Whether audience fit, facts, or accepted content have regressed.
+- Whether cited evidence comes from the current version.
 
-## 5. 门控：三个规则，不增加门的数量
+If two successive rounds of the same kind of revision fail to improve the text, rediagnose the higher-level cause. Do not repeat polishing blindly or automatically demand renewed user approval.
 
-1. **结构校验成功仅代表提交有效。** 必须允许带问题的草稿进入工作台；提交交付物与锁定质量结论不能绑定为一件事。
-2. **关键问题未解决或所需审计未验证，不能宣布编辑审计通过。** 缺少修改后证据时不接受“已优化”作为关闭依据；程序只能校验完整性、引用与明显矛盾，不能证明模型语义判断正确。
-3. **用户接受绑定具体版本。** 记录用户的取舍与剩余问题，不把接受反写成“所有问题已解决”。用户明确接受剩余编辑问题时，沿用现有决定机制说明例外；不能把未核实事实标为已核实。
+## 5. Gating: three rules, no additional gates
 
-不增加四套通过状态。现有提交结果、审计结论、证据缺口和人工决定分别表达各自含义，界面标清即可。
+1. **Structural validation means only that a submission is valid.** Drafts with problems must still reach the workbench; deliverable submission and a locked quality conclusion must not be inseparable.
+2. **Do not declare editorial audit success while critical issues remain unresolved or required audit findings are unverified.** “Optimized” is not closure evidence without post-revision support. Code can check completeness, references, and clear contradictions; it cannot prove a model's semantic judgment.
+3. **User acceptance binds to a specific version.** Record tradeoffs and remaining issues rather than rewriting acceptance as “everything resolved.” Explicitly accepted editorial exceptions use existing decisions; unverified facts remain unverified.
 
-需要能复核的一条记录是：
-“依据哪版要求 → 审查哪版交付物 → 哪些问题仍在 → 有何验证证据 → 据何决定进入下一步”。
+Do not add four new acceptance states. Existing submission results, audit conclusions, evidence gaps, and human decisions each retain their own meaning, clearly labeled in the UI.
 
-审计漏检由实际反馈转成回归案例；不再建一套审计评分系统。审计本身可能判断错误，框架应保证依据可见、可纠正，而非承诺自动消除误判。
+A reviewable record must answer:
 
-## 6. 当前交付物：素材需求直接带制作流程
+“Which requirements version → which deliverable version → which remaining issues → what verification evidence → which decision justified the next step?”
 
-保留并传递 captureProtocol。在每组 MaterialRequirement 增加 productionProcedure，首版使用可读 Markdown 文本，按“准备、具体步骤、各使用位成品要求、验收、失败处理”组织。使用已有 usageId 标出每张成图的要求，不再拆十余个强制子字段。
+Turn audit misses reported in actual feedback into regression cases; do not create another audit scoring system. Audits may be wrong. The framework makes their evidence visible and correctable rather than promising to eliminate errors automatically.
 
-正文必须能让执行者知道：
-- 用什么材料、环境和演示输入；
-- 按什么顺序做，每步应看到什么；
-- 各使用位怎样构图、标注和输出；
-- 保留什么证据，怎样判断完成；
-- 无法取得材料或结果不符时怎么办。
+## 6. Current deliverable: material requirements include production procedures
 
-采集协议约束来源真实性，制作流程补具体做法；有冲突必须修正，不能由后者静默覆盖前者。
+Preserve and pass captureProtocol. Add productionProcedure to each MaterialRequirement group as readable Markdown organized into preparation, concrete steps, finished-output requirements per usage, acceptance, and failure handling. Use existing usageId values to identify each final image's requirements rather than adding more than a dozen mandatory subfields.
 
-节点 5 复用现有状态与 promo_commit，增加一个窄范围提交类型（建议 submit_requirement_details）即可。仅更新现有需求的制作流程，校验基础版本和需求 ID；不改主稿、不静默删使用位。编译后由 pendingAction 指向细化任务，完成再生成审核包，不增加七节点以外的新节点。
+The text must tell an executor:
 
-流程不完整仍能保存草案；进入制作前要求执行审查完成。只检查非空文本不代表可执行，审计需指出步骤、结果与使用位是否对应。
+- Which materials, environment, and demonstration inputs to use.
+- The execution order and expected observations at each step.
+- Composition, annotations, and output requirements for each usage.
+- Which evidence to retain and how to judge completion.
+- What to do when materials are unavailable or results differ.
 
-同一份需求制品进入工作台、审核包和节点 6。独立手册若保留，应从正式需求生成；备注不承担传递正文的职责。改主张或删除锁定使用位依照既有节点 4 回流。
+Capture protocols constrain source authenticity; production procedures supply concrete steps. Resolve conflicts rather than allowing procedures to silently override protocols.
 
-## 7. 文字批注：直接接入审计与修改
+Node 5 reuses existing state and promo_commit with one narrow submission type, suggested as submit_requirement_details. It updates procedures for existing requirements, checking base version and requirement IDs; it does not change the master or silently remove usages. After compilation, pendingAction points to refinement. Generate the review package when refinement is complete, without adding an eighth node.
 
-### 7.1 用户操作
+Incomplete procedures may be saved as drafts; execution review must finish before production. Nonempty text alone does not establish executability: the audit must check correspondence between steps, results, and usages.
 
-在工作台选中任意文字后显示“批注”，输入“太长了”“这里的因果不成立”等意见。选区可从段中开始、跨多个段落结束，不强制整段选择。支持多条独立批注；同一条意见涉及不连续文字时，可用“追加选区”收集同一交付物内的多个片段，再提交一条批注。
+The same requirements artifact goes to the workbench, review package, and node 6. Any separate manual should be generated from the formal requirements. Notes cannot substitute for transmitting the actual procedure. Claim changes or removal of locked usages follow existing node 4 return paths.
 
-正文高亮关联选区，侧栏显示原文、意见和处理回复，点击可定位。跨交付物的意见分为各自批注，下一轮仍可一并处理。不强制用户选择问题类型、严重程度或评分。提供无选区的“全文批注”，让结构性意见不必随意挂在一句话上。
+## 7. Text annotations: connect directly to audit and revision
 
-明确区分未保存输入与已保存批注：保存成功后才计入待处理数量；失败保留输入并可重试。用户可修改或撤回自己的批注，历史保留。撤回不是物理删除，也不回滚已完成的正文修改。
+### 7.1 User interaction
 
-范围仅限工作台正式交付物的文字字段，包括主稿、大纲、素材制作流程和发布文案；视频项目中的脚本文字也可适用。不做图片框选、视频时间轴、音频批注、OCR 或正文在线共同编辑。
+Selecting any text in the workbench reveals “Annotate,” where users can write feedback such as “too long” or “the causal claim does not hold.” Selections may start mid-paragraph and span paragraphs. Support multiple independent annotations. For one comment covering noncontiguous text, “Add selection” collects multiple fragments within the same deliverable before submission.
 
-### 7.2 最小数据与可靠定位
+Highlight associated selections in the body. A sidebar shows original text, comments, and replies, with click-to-locate navigation. Split cross-deliverable feedback into separate annotations that can still be handled together next turn. Do not require users to select issue types, severity, or scores. Provide whole-document annotations without selections for structural feedback.
 
-批注作为现有流程存储中的轻量记录，引用现有制品。只增加两类数据：
+Distinguish unsaved input from saved annotations: only successful saves count as pending. Preserve input on failure and allow retry. Users can edit or withdraw their own comments, retaining history. Withdrawal is not physical deletion and does not roll back completed text changes.
 
-| 数据 | 必需内容 |
+Scope is text fields of formal workbench deliverables, including masters, outlines, production procedures, release copy, and video script text. Exclude image-region, video-timeline, and audio annotations, OCR, and live collaborative body editing.
+
+### 7.2 Minimum data and reliable anchoring
+
+Annotations are lightweight records in existing workflow storage, referencing existing artifacts. Add only two data types:
+
+| Data | Required content |
 | --- | --- |
-| 批注 | ID、修订号、流程与制品引用、原版内容哈希、文字字段路径、选区数组或全文范围、意见、创建/修改时间及来源 |
-| 处理回执 | 批注 ID 与修订号、采取的动作及理由、新版制品/差异引用、验证结果或尚缺的信息 |
+| Annotation | ID, revision, workflow/artifact reference, original content hash, text-field path, selection array or whole-document scope, comment, creation/update time, source |
+| Processing receipt | Annotation ID/revision, action and reason, new artifact/difference references, verification result or missing information |
 
-每个选区保存统一文本表示中的起止位置、选中文本和前后短上下文。首版统一索引单位及文本提取规则，并测试中文、emoji、换行和 Markdown；不能只保存 DOM 路径或字符位置。当前纯文本式 Markdown 展示优先沿用；今后富文本展示须维持可逆的文字位置映射。
+Each selection stores start/end offsets in a normalized text representation, selected text, and short preceding/following context. Standardize index units and extraction rules, testing Chinese, emoji, newlines, and Markdown. DOM paths or offsets alone are insufficient. Retain the current plain-text Markdown display where possible; future rich-text display must preserve reversible text-position mapping.
 
-批注始终绑定提交时看到的版本。新版可展示对应位置，但只有上下文唯一、匹配明确时才自动映射；文本删除、重复或大幅改写时显示“原位置已变化”，保留原版定位与人工重新关联入口，不猜测位置。重新关联也保留历史。
+Annotations always bind to the version visible when submitted. New versions may show corresponding locations only when context is unique and matching unambiguous. For deleted, repeated, or heavily rewritten text, show “Original location changed,” preserving original-version navigation and manual reassociation rather than guessing. Reassociation retains history.
 
-界面上的“待处理、已回复、已验证、需补充信息、已撤回”由最新批注与回执推导。回复不能等同解决；遇到缺信息时记录原因，不在每次读取时重复假装处理。
+Derive “Pending,” “Replied,” “Verified,” “More information needed,” and “Withdrawn” from the latest annotation and receipt. A reply is not resolution. Record missing-information reasons rather than pretending to reprocess them on every read.
 
-### 7.3 下一轮自动处理
+### 7.3 Automatic next-turn processing
 
-“下一次对话”定义为用户在关联活动流程的任务中发起下一轮消息；保存批注本身不触发后台模型调用。流程入口 Skill 要求先读取 promo_get 的待处理批注，再决定执行本轮任务。首版不跨任务扫描，也不承诺未打开该流程的任意聊天会自动收到批注。
+“Next conversation” means the next user message in the task linked to the active workflow. Saving an annotation does not trigger a background model call. The entry skill reads pending annotations from promo_get before deciding how to execute the turn. The initial version does not scan other tasks or promise delivery to arbitrary chats that have not opened the workflow.
 
-流程快照增加 reviewFeedback，返回待处理摘要和可完整读取的批注正文；量大时分页，不静默截断。服务只读取，不把“读过”记成“处理完成”。每轮采用明确的批注修订集合，执行顺序为：
+Add reviewFeedback to the snapshot, returning pending summaries and fully readable annotation bodies. Paginate large results rather than silently truncating. Reading does not mark completion. Each turn adopts an explicit annotation-revision set and executes:
 
-1. 读取当前要求、当前正文及本轮待处理批注，先判断是否涉及全文结构、要求冲突或过时版本。
-2. 将相关意见合并诊断，先修全文再修局部；一处修改可回应多条批注，但每条都应有自己的回执。
-3. 在权限和当前节点范围内修改文字；若意见与已锁定要求矛盾，明确指出取舍，不能静默覆盖契约。当前聊天若明确要求暂不修改，保留批注待办。
-4. 提交新版及逐条回复，说明改了哪里、为何未改、是否已验证，给出可点击的差异位置。
-5. 按既有审计规则复审；关键问题未解决时，不能因批注已回复而放行。
+1. Read current requirements, current text, and pending annotations. Check whole-article structure, requirement conflicts, and outdated versions first.
+2. Diagnose related comments together; fix the whole article before local wording. One edit may address several comments, but each gets its own receipt.
+3. Revise within current permissions and node scope. Explain tradeoffs when feedback conflicts with locked requirements rather than silently overriding the contract. If the user says not to revise yet, retain pending comments.
+4. Submit the new version and individual replies explaining locations, reasons for unchanged text, and verification, with clickable differences.
+5. Recheck under existing audit rules. Replied annotations do not permit progression while critical issues remain unresolved.
 
-批注保存不等于批准、推进节点或撤销锁定。针对已锁定文字的明确修改意见，在下一轮走既有回流路径；若影响其他已锁定要求、主张或使用位，先说明影响并按现有规则处理，不扩大修改权限。
+Saving comments is not approval, node advancement, or unlocking. Explicit revision requests for locked text use existing return paths next turn. Explain effects on other locked requirements, claims, or usages and apply existing rules without broadening edit authority.
 
-并发与重试只用现有版本校验和幂等机制扩展：回执绑定批注的具体修订；执行途中新增、修改或撤回的意见，在提交时重新核对。未纳入本轮的意见留给下轮，不被批量标为完成。保存新版与成功修改回执需在同一服务提交中保持一致；失败不能留下“已改好”回执。存储提交与工作区投影刷新之间允许重试，但界面须明确同步未完成。
+Concurrency and retries extend existing version checks and idempotency. Receipts bind to specific annotation revisions; recheck comments added, edited, or withdrawn during execution before submission. Comments outside this turn remain pending. A revised artifact and successful revision receipts must stay consistent in one service submission: failures must not leave “fixed” receipts. Projection refresh can retry after persistence, but the UI must clearly report incomplete synchronization.
 
-## 8. 轻量版本回看：给现有历史一个可用入口
+## 8. Lightweight version review: expose existing history
 
-不建立 Git 式分支、合并或另一份全文仓库。按现有逻辑交付物聚合同类制品版本，展示“当前版、上一版、历史版”，区分正文版本与流程 revision：保存一条批注不制造一版正文。
+Do not create Git-like branches, merges, or another full-text repository. Group artifact versions by existing logical deliverable, showing current, previous, and historical versions. Distinguish body versions from workflow revisions: saving a comment does not create a body version.
 
-每版显示生成时间、修改摘要、关联批注、审计和用户决定。提供相邻版本的段落/文字差异，以及“原文 → 批注 → 回复 → 修改后”的互相跳转。旧版只读，旧版批注不因切到新版而消失；初始版本没有差异时正常展示。
+Each version displays creation time, change summary, related annotations, audit, and user decisions. Provide adjacent-version paragraph/text differences and navigation between original text → annotation → reply → revised text. Old versions are read-only; old annotations remain available after switching versions. Show initial versions normally when there is no difference.
 
-首版只做查看和对比，不提供一键覆盖恢复；需要恢复旧文字时，由下一轮生成一个新版本并重新审计，历史不被改写，旧批准不移植到新版。
+The initial version supports viewing and comparison, not one-click overwrite restoration. Restoring earlier text creates and audits a new version next turn. History is not rewritten and old approvals do not transfer.
 
-工作台更新不得打断选区或丢失未提交意见。用户正在选字或写批注时保持当前版本视图，出现新版则提示“有新版可查看”；切换前处理未保存输入，不能直接替换全文。
+Updates must not interrupt selections or lose unsaved feedback. Keep the current view while users select or annotate; notify them when a new version is available. Handle unsaved input before switching rather than replacing the whole body.
 
-工作台从只读变为“正文只读、批注可写”。新增窄范围批注接口，由服务层校验流程、制品、字段、版本与长度，统一持久化。限制请求来源并使用会话校验/防跨站令牌；不接受任意文件路径或执行指令。批注和回复按不可信文本渲染，不能注入 HTML 或成为覆盖系统规则的指令。
+The desk becomes “read-only body, writable annotations.” Narrow annotation endpoints validate workflow, artifact, field, version, and length in the service layer, with shared persistence. Restrict request origins and use session validation/cross-site tokens. Accept no arbitrary file paths or execution instructions. Render annotations and replies as untrusted text so they cannot inject HTML or override system rules.
 
-## 9. 实施顺序与落点
+## 9. Implementation order and locations
 
-| 工作包 | 主要位置 | 必须完成 |
+| Work package | Main locations | Required outcome |
 | --- | --- | --- |
-| A：门控与审计记录 | master-development.ts、workflow-service.ts、human-review.ts、contracts | 草稿可提交；关键问题和当前验证依据约束审计通过；明确用户接受语义 |
-| B：当前要求与 Skill | baseline/creative-outline/master-development、guidance、plugins | 受众口径统一；散文化参数能改变指导；累计检查有效要求 |
-| C：素材流程完整交付 | requirements-compiler.ts、workflow-service.ts、production.ts、review-host.ts | 协议不丢失；节点 5 可细化；三端使用同一正式流程 |
-| D：文字批注闭环 | contracts、workflow-service.ts、review-host.ts、工作流入口 Skill | 任意选区、多条意见、可靠保存、下一轮读取、逐条回执；接入 A 的审计与版本约束 |
-| E：历史回看 | 现有制品索引、事件记录、工作台文字视图 | 版本切换、文本差异、批注与修改互链；不引入独立版本库 |
-| F：回归与兼容检查 | 现有服务、指导和工作台测试 | 下列用例通过，完成一次真实浏览器交互闭环检查 |
+| A: gates and audit records | master-development.ts, workflow-service.ts, human-review.ts, contracts | Draft submission; audit success constrained by critical issues and current evidence; clear acceptance semantics |
+| B: current requirements and skills | baseline/creative-outline/master-development, guidance, plugins | Consistent audience assumptions; looseness changes guidance; cumulative checks against effective requirements |
+| C: complete material procedures | requirements-compiler.ts, workflow-service.ts, production.ts, review-host.ts | Preserve protocols; refine at node 5; all three consumers use the same formal procedure |
+| D: annotation loop | contracts, workflow-service.ts, review-host.ts, entry skill | Arbitrary selections, multiple comments, reliable saving, next-turn reading, individual receipts; A's audit/version constraints |
+| E: historical review | Existing artifact index, events, workbench text view | Version switching, differences, annotation/edit navigation; no separate version store |
+| F: regression and compatibility | Existing service, guidance, and desk tests | Cases below pass, including a real browser interaction loop |
 
-A 优先解决虚假通过；B、C 各自形成完整可审阅改动。D 先打通“选区 → 保存 → 下轮修改 → 回执”，E 再呈现已有版本关系，二者作为完整交互能力交付。测试随每包补充，F 做端到端收口。不先铺设无消费者的通用基础设施。具体类型名以实施前对现有契约的核对为准，但不得扩大为新子系统。
+A first addresses false passes; B and C each form a complete reviewable change. D establishes selection → save → next-turn revision → receipt; E exposes existing version relationships. Deliver D and E as a complete interaction capability. Add tests with each package; F closes end-to-end verification. Do not build generic infrastructure without consumers. Confirm concrete type names against existing contracts before implementation without expanding into new subsystems.
 
-## 10. 验收：围绕实际失败与新增交互
+## 10. Acceptance: actual failures and new interactions
 
-1. 新手要求覆盖旧开发者口径，下游不再恢复旧术语假设。
-2. 同一事实底稿在散文化 15/35/65 下有可辨认的表达差异，重要事实与全文推进保持；通过文本对比审阅，不追求数值命中率。
-3. 局部句句连贯、全文却不推进的稿件，审计能指出具体章节关系；时间线或问句存在不能直接作为通过理由。
-4. 提交 passed=true 却留有关键未解决项，程序拒绝矛盾结论；带问题的正文仍可提交审阅。
-5. 改稿后旧版验证不能直接复用为新稿通过证据；未受影响的观察可引用，但须明确适用范围。
-6. 用户暂时接受的版本保留剩余问题，不被重写成无问题版本。
-7. 一组素材、两个使用位：采集协议、具体步骤和两张成品要求都出现在工作台、审核包、制作任务中。
-8. 节点 5 修改步骤不改变锁定主稿哈希；旧审核包不被冒充为新需求的批准。
-9. 文件保存、备注登记或任务简报出现均不能单独证明正式交付可见。
-10. 从段中选到下一段中间、追加不连续选区、连续保存三条不同意见，均能在刷新后准确还原；全文意见无需伪造选区。
-11. 中文、emoji、重复句、Markdown 和换行不导致位置漂移。旧选区在新版被删除或变得不唯一时，明确显示位置变化，仍可查看原版。
-12. 用户下一轮仅说“继续”，Agent 能读取本流程的全部待处理批注、处理并逐条回复；若明确说“先不改”，不执行正文改动。无需用户复制粘贴批注。
-13. 处理途中新增批注不丢失；批注被修改/撤回后不能按旧意见误记完成；重复请求不产生重复批注、正文版本或回执。
-14. 两条意见冲突或需要用户选择时，说明具体冲突并保持待处理；成功回复但没有新版修改依据时，不显示已修改或已验证。
-15. 一处改动回应多条批注，且原文、批注、回复、差异和审计可以相互跳转；历史用户接受只关联原版本。
-16. 文字输入期间收到更新通知，选区、输入和滚动不丢失；保存失败可重试；伪造跨站写入、越界制品引用和 HTML 注入被阻止。
+1. Beginner requirements override old developer assumptions downstream.
+2. The same factual draft at looseness 15/35/65 shows distinguishable expression while preserving facts and progression; assess through text comparison, not numeric target rates.
+3. An audit identifies section relationships in text that is locally coherent but fails to progress overall; timelines or questions alone do not establish success.
+4. A passed=true submission with unresolved critical issues is rejected as contradictory; problematic text can still be submitted for review.
+5. Old verification cannot directly prove a revised draft passes; unchanged observations may be cited with explicit scope.
+6. A temporarily accepted version retains its remaining issues.
+7. One material group with two usages exposes the protocol, steps, and both finished-image requirements in the desk, review package, and production task.
+8. Node 5 procedure changes preserve the locked master hash; old review packages do not count as approval for new requirements.
+9. File saving, notes, or task briefs alone cannot establish visible formal delivery.
+10. Cross-paragraph selections, added noncontiguous selections, and three consecutive distinct comments restore accurately after refresh; whole-document comments need no fake selection.
+11. Chinese, emoji, repeated sentences, Markdown, and newlines do not cause anchor drift. Deleted or nonunique selections explicitly report changed locations while preserving originals.
+12. If the next user message is just “continue,” the agent reads and handles all pending workflow comments with individual replies. “Do not revise yet” prevents body changes. Users need not paste comments into chat.
+13. Comments added during processing survive; edited/withdrawn comments cannot be marked complete under stale feedback; retries create no duplicate annotations, body versions, or receipts.
+14. Conflicting comments or required user choices explain the conflict and remain pending. Replies without new-version revision evidence do not show “Modified” or “Verified.”
+15. One edit can address multiple comments with navigation between originals, comments, replies, differences, and audits. Historical acceptance stays tied to its original version.
+16. Update notifications preserve selections, input, and scroll. Save failures can retry; forged cross-site writes, out-of-scope artifacts, and HTML injection are blocked.
 
-程序测试覆盖版本、引用、字段传递、结论矛盾和渲染；编辑案例评审覆盖长程逻辑、表达自然及修改是否有效。通过现有 npm run build、npm test，并检查文章与视频既有路径；不使用真实用户流程做破坏性测试。
+Program tests cover versions, references, field propagation, contradictory conclusions, and rendering. Editorial case reviews cover long-range logic, natural expression, and revision effectiveness. Run existing npm run build and npm test, checking established article/video paths without destructive tests on real workflows.
 
-## 11. 兼容与停止扩展条件
+## 11. Compatibility and limits on expansion
 
-旧制品保持可读且不重写。旧审计通过记录显示为历史结论，不伪造缺失证据；旧流程未设置的参数保持未设置。已接受的历史产出不自动撤销，新修订按新契约验证。
+Old artifacts remain readable and unchanged. Old audit passes display as historical conclusions without fabricated missing evidence. Unset parameters stay unset. Historical acceptance is not automatically revoked; new revisions validate against the new contract.
 
-先在测试数据回放本轮案例。活动流程的制作手册只能作为待核对输入，不能自动转为已采集证据或已批准方案。发布按现有仓库构建、插件版本及安装流程执行。
+Replay this round's cases in test data first. Production manuals in active workflows are inputs to verify, not automatically captured evidence or approved proposals. Release through existing build, plugin versioning, and installation procedures.
 
-旧流程无批注时反馈列表为空，不改变原先的推进方式；不为历史文字伪造批注或审计。历史制品索引不足时先补读取索引，不迁移为第二套全文存储。
+Old workflows without annotations have empty feedback lists and retain their progression behavior. Do not fabricate historical annotations or audits. Add missing historical read indexes rather than migrating to a second full-text store.
 
-完成上述十六项验收即交付首版。总分、自动权重、机械感指数、知识图谱、独立审计代理体系、实时多人协作、分支合并、非文字批注和后台自动唤醒均暂缓。后续新增机制必须提供具体失败案例，说明现有三个对象为何不足，并评估是否可以先删改旧规则解决。
+Completion of the sixteen acceptance cases delivers the initial version. Defer total scores, automatic weights, mechanical-writing indexes, knowledge graphs, independent audit-agent systems, real-time collaboration, branching/merging, nontext annotations, and background wakeups. New mechanisms must cite a concrete failure, explain why the three existing objects are insufficient, and assess whether removing or changing an old rule would solve it first.
 
-## 12. 首版实施记录（2026-09-05）
+## 12. Initial implementation record (2026-09-05)
 
-已实现：
+Implemented:
 
-- proseLooseness 在契约和大纲间传递，主稿任务同时收到当前基线与大纲。共享服务指导控制松紧度，宿主 Skill 引用同一映射；不增加总分。
-- masterReview.audit 保存要求/主稿哈希、全文判断和有位置、有动作、有验证的问题；失败草稿可展示，通过结论需一致。用户接受剩余编辑问题单独记录，不消除事实缺口。
-- captureProtocol 传递到正式需求，productionProcedure 随需求进入审核包、工作台和制作任务；submit_requirement_details 在节点 5 原地细化。回退节点 5 保留既有步骤，不重新编译丢失。
-- 文字审阅面板提供跨段选区、追加片段、全文意见、多条批注、编辑/撤回、原文高亮、旧版回看和文字差异。批注修订保留历史，重关联不覆盖旧记录。
-- promo_get 提供 reviewFeedback；promo_text_review 读取完整文字历史；新版提交可附逐条 annotationReceipts。reply_annotations 用于不改稿的解释/待补信息；request_text_revision 将明确批注接入已有回流路径，并记录决定，不增加节点。
-- 文件存储的读改写串行化；批注修订校验、幂等键、跨站写保护和文本转义；正式提交先持久化、再投影，投影失败可恢复且不重复修改。
-- 修复“旧锁定稿遮住新草稿”；移除阻塞本地页面加载的外部字体依赖。
+- proseLooseness passes between contract and outline; master tasks receive current baseline and outline. Shared service guidance controls looseness and host skills reference the same mapping, without a total score.
+- masterReview.audit stores requirements/master hashes, whole-article judgment, and located issues with actions and verification. Failed drafts remain visible; pass conclusions must be consistent. User acceptance of remaining editorial issues is recorded separately and does not erase factual gaps.
+- captureProtocol reaches formal requirements; productionProcedure flows to the review package, desk, and production task. submit_requirement_details refines in place at node 5. Returning to node 5 preserves steps rather than losing them through recompilation.
+- The text desk supports cross-paragraph selections, added fragments, whole-document feedback, multiple annotations, editing/withdrawal, highlighting, old-version review, and differences. Annotation revisions and reassociation retain history.
+- promo_get provides reviewFeedback; promo_text_review reads complete text history; new submissions can include individual annotationReceipts. reply_annotations handles explanations or missing information without rewriting; request_text_revision routes explicit feedback through existing return paths and decisions, without new nodes.
+- Serialized file-store read-modify-write; annotation revision checks, idempotency, cross-site write protection, and escaping. Formal submissions persist before projection, with recoverable projection failure and no duplicate mutation.
+- Fixed old locked masters obscuring new drafts; removed external font dependencies that blocked local page loading.
 
-验证：npm run build；服务及接口自动化测试；独立临时数据中的真实 Chromium 交互测试。后者覆盖跨段/多片段、连续批注、更新不丢输入、保存失败重试、重新打开持久化、旧版定位、差异和 HTML 文本安全。测试不写入活动宣传流程。测试脚本位于 packages/promo-mcp/test/text-desk-browser.mjs，使用本机已有 Playwright 的 Node 接口（测试 Skill 推荐的 Python 接口在本环境未安装）。
+Validation: npm run build; automated service/interface tests; real Chromium interaction tests using independent temporary data. Browser checks covered cross-paragraph/multiple selections, consecutive annotations, updates preserving input, save failure/retry, persistence after reopening, original-version anchors, differences, and safe HTML text. Tests did not write to active campaigns. packages/promo-mcp/test/text-desk-browser.mjs uses the installed Playwright Node interface; the testing skill's recommended Python interface was not installed in that environment.
 
-部署：基础插件 0.2.0、文章编辑插件 0.3.1。更新通过正常插件安装命令完成，不手改安装缓存。已打开任务的工具清单不会因文件更新自动重载；重新加载插件/新开任务后才会使用新增工具及入口指导。
+Deployment: base plugin 0.2.0, article editor plugin 0.3.1. Updates used normal plugin installation commands, not cache edits. Open tasks do not automatically reload tool lists after file updates; reload plugins/open a new task to use new tools and guidance.
 
-实施时的简化与边界：
+Implementation simplifications and boundaries:
 
-1. 批注使用自己的修订，不提升流程 revision；否则仅保存一条意见就会让冻结审核包失效。批注事件仍进入现有历史。
-2. 历史原文与批注均完整返回，首版不静默截断；尚未做大规模历史分页。当前适用于本地单人文章工作流，数据量增长后再按实测引入分页。
-3. 文字差异使用有界的前后公共片段对比，不引入 diff 依赖、分支或合并。多处零散改动可能显示为较大的变更区域；可以回看完整原版。
-4. 新版位置仅在引用与上下文唯一时提供对应入口；其他情况保留原版定位及手动重关联。没有模拟“智能迁移成功”。
-5. “下一轮自动处理”依赖关联任务加载新版入口 Skill 并执行工具闭环，不是后台唤醒。批注不是自动批准。
-6. 程序验收能证明引用、状态、展示与持久化，不能证明所有文章都自然、深入。散文化 15/35/65 的实际稿件对比与长程逻辑漏检率，仍需后续真实写作试跑校准；本轮没有把这些主观效果宣称为自动测试通过。
+1. Annotations use their own revisions without raising the workflow revision, so saving a comment does not invalidate frozen review packages. Annotation events still enter existing history.
+2. Original text and annotations return in full without silent truncation. Large-scale history pagination is not yet implemented; introduce it when measured growth requires it for this local single-user article workflow.
+3. Text differences use bounded common-prefix/suffix comparison without diff dependencies, branches, or merging. Scattered edits may appear as a larger changed region; full original versions remain readable.
+4. New-version navigation is provided only for unique references/context. Otherwise, preserve original anchors and manual reassociation without claiming successful intelligent migration.
+5. Next-turn processing depends on the linked task loading the new entry skill and executing the tool loop, not background wakeups. Annotations do not automatically approve work.
+6. Program acceptance proves references, state, display, and persistence, not natural or deep writing in every article. Actual 15/35/65 comparisons and long-range logic miss rates still need calibration through real writing trials; this round did not claim those subjective outcomes as automated test successes.

@@ -1,41 +1,41 @@
-# 四类 AI 八股诊断卡
+# Four AI cliches: diagnostic card
 
-这张卡用于审稿定位，不是禁词表。先问句子是否有真实作用，再决定保留、改写还是删除。
+Use this card to locate editorial problems, not as a banned-word list. Assess whether a sentence serves a real purpose before retaining, rewriting, or deleting it. Chinese patterns remain below with English glosses because the gate reviews Chinese writing.
 
-## 强行对比
+## Forced contrasts
 
-信号：连续出现“不是……而是……”“并非……而是……”，但前后并不互斥。
+Signal: repeated “不是……而是……” or “并非……而是……” (both “not … but …”) where the alternatives are not mutually exclusive.
 
-判断：删掉前半句后，后半句是否损失了信息？如果没有，它多半只是在制造“我有洞察”的姿态。
+Test: does removing the first half lose information? If not, it likely manufactures an appearance of insight.
 
-修复：直接说结论，或写出真实冲突。例如把“不是为了追热点，而是为了深刻反思”改成“我想先把这次重跑为什么失败说清楚”。
+Repair: state the conclusion or actual conflict directly. “不是为了追热点，而是为了深刻反思” (“not to chase trends, but to reflect deeply”) → “我想先把这次重跑为什么失败说清楚” (“I want to explain why this rerun failed first”).
 
-## 悬空修辞
+## Unsupported rhetoric
 
-信号：时代、命运、钥匙、路口、风暴、深刻人性等大词替代一个小而可验证的事实。
+Signal: grand language about eras, destiny, keys, crossroads, storms, or profound human nature replaces a small verifiable fact.
 
-判断：问“读者能看到什么？”如果回答只能是另一个抽象词，修辞没有完成解释工作。
+Test: ask what the reader can see. If the answer is another abstraction, the rhetoric has not explained anything.
 
-修复：换成对象、动作、状态和结果；比喻只有在带来独特画面或解释时保留。
+Repair: use objects, actions, states, and results. Retain metaphors only for distinctive imagery or explanation.
 
-## 重复夸张
+## Repetitive exaggeration
 
-信号：同一个结论在相邻句里换成“干货、获得感、专业感、底层逻辑、全面升级、深度拆解”等词反复宣布。
+Signal: adjacent sentences reannounce the same conclusion as “干货、获得感、专业感、底层逻辑、全面升级、深度拆解” (“practical substance, a sense of benefit, professionalism, underlying logic, comprehensive upgrade, deep breakdown”).
 
-判断：每句话是否增加了新的动作、证据或判断？没有就合并或删除。
+Test: does each sentence add an action, evidence, or judgment? If not, merge or remove it.
 
-修复：用一个可执行的小测试替代自我评价，例如“连续重跑三次，记录每次状态是否还在”。
+Repair: replace self-evaluation with a small executable test, such as “Rerun three times and record whether state persists each time.”
 
-## 文化脱节
+## Cultural detachment
 
-信号：语法无误但不像自然中文；商业抽象词成串；表达靠英文直译的宏观口号维持气势。
+Signal: grammatical but unnatural Chinese, strings of business abstractions, or literal translations of grand English slogans.
 
-判断：换成作者平时会对同事说的话，意思是否更清楚？如果是，优先采用自然说法。
+Test: would wording the author uses with colleagues make the meaning clearer? Prefer it if so.
 
-修复：把“赋能、抓手、闭环、生态、范式、颗粒度”还原成实际动作；不要为了“有文化”凭空添加地域、代际或群体记忆。
+Repair: turn “赋能、抓手、闭环、生态、范式、颗粒度” (“empowerment, handles/levers, closed loops, ecosystems, paradigms, granularity”) into actual actions. Do not invent regional, generational, or collective memories to sound cultural.
 
-## 三档结论
+## Three conclusions
 
-- **阻塞**：虚构第一人称、虚构数据/反馈、证据范围被扩大。必须删掉、降级或追问。
-- **待修**：四类八股、抽象填充、重复、翻译腔。给出原句和一版具体改法。
-- **可保留**：真实对比、有解释力的比喻、为了节奏的重复、作者明确提供的文化表达。注明保留理由。
+- **Blocked**: invented first-person experience, data/feedback, or expanded evidence scope. Remove, narrow, or ask.
+- **Needs revision**: the four cliches, abstract filler, repetition, or translated phrasing. Supply the original and one concrete repair.
+- **May remain**: real contrasts, explanatory metaphors, rhythmic repetition, or cultural expression explicitly supplied by the author. Explain retention.

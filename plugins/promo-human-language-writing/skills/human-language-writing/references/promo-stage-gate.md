@@ -1,20 +1,20 @@
-# Promo Workflow 人话门禁
+# Promo Workflow natural-language gate
 
-人话门禁是跨载体的第一层审查，优先于平台格式和一般文风。它不替代主题、证据、分镜、素材或人工批准规则。
+This is the first review layer across carriers, ahead of platform format and general style. It does not replace topic, evidence, storyboard, material, or human approval rules.
 
-| 节点 | 先看什么 | 应留下的痕迹 |
+| Node | Check first | Retained trace |
 | --- | --- | --- |
-| N2 宣传意图 | 读者场景、具体麻烦、作者判断 | coreMessage/guidanceIntent 的具体化，人话锚点和证据缺口 |
-| N3 创意大纲 | 每段动作、观察、证明和判断 | macroStyleReview 中的风险、修复和未支持主张 |
-| N4 主稿/修订 | 场景—动作—结果—判断，口播可读性 | masterReview.writingStyle 的句子级发现与修复 |
-| N5/N6 素材/预览 | 画面是否证明文字，字幕是否说人话 | 视觉锚点、字幕/图注修复和证据回流 |
-| N7 发布包装 | 标题和简介是否超出正文 | 每个候选的证据来源与克制的承诺 |
+| N2 intent | Reader situation, concrete problem, author judgment | Specific coreMessage/guidanceIntent, human anchors, evidence gaps |
+| N3 outline | Actions, observations, proof, judgments per section | Risks, repairs, unsupported claims in macroStyleReview |
+| N4 master/revision | Situation–action–result–judgment, spoken readability | Sentence findings and repairs in masterReview.writingStyle |
+| N5/N6 materials/preview | Whether images prove text and captions sound natural | Visual anchors, subtitle/caption repairs, evidence return paths |
+| N7 release | Whether titles/introductions overreach the body | Evidence source and restrained promise per candidate |
 
-## 冲突处理顺序
+## Conflict resolution order
 
-1. 不得突破事实和证据边界。
-2. 不得伪造作者经历、读者反馈或文化记忆。
-3. 先保证具体、清楚、能读出来，再做平台长度和形式适配。
-4. 只在有真实作用时保留对比、比喻和重复。
+1. Preserve factual and evidence boundaries.
+2. Never invent author experience, reader feedback, or cultural memory.
+3. Establish concrete, clear, readable language before platform length/format adaptation.
+4. Keep contrasts, metaphors, and repetition only when they serve a real purpose.
 
-“更有冲击力”应被翻译成更清楚的动作、结果或判断；“更专业”应被翻译成更准确的术语和更完整的证据，不应被翻译成更大的形容词。
+“More impactful” means clearer action, result, or judgment. “More professional” means more precise terminology and fuller evidence, not larger adjectives.

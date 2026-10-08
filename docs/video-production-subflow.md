@@ -1,29 +1,29 @@
-# 第六节点：常驻制作记录
+# Node 6: persistent production record
 
-主流程仍然只有七个节点。`videoProduction` 独立保存在工作流记录中，描述制作现场，不把每种返工组合变成顶层状态。
+The main workflow still has seven nodes. `videoProduction` is stored independently in the workflow record to describe production activity without turning every rework combination into a top-level state.
 
-六个阶段：素材检查、故事粗剪、声音整理、画面精剪、字幕校对、终版交付。阶段内允许任意多个子任务和多轮修改。
+Six stages: material check, story rough cut, sound cleanup, picture fine cut, subtitle proofreading, and final delivery. Each stage permits any number of subtasks and revision rounds.
 
-## 日常使用
+## Daily use
 
-1. 前期人工审核通过后自动建立制作记录；已有第六节点项目可调用 `promo_video_production_update(action=start)` 初始化。不会把旧交付结果自动算成六阶段已通过。
-2. Agent 先读 `promo_video_production`，按当前指导添加或更新任务（`task`），记录负责人、待处理/处理中/阻塞/完成。完成任务须引用本流程的真实制品。
-3. 所有当前任务完成后，以 `submit` 绑定交付制品和当前注册视频；未解决视频意见会阻止提交。
-4. 用户在第六节点查看交付物和验收清单、打开审片批注。填写确认依据，点击并再次确认“确认本版并继续”，才进入下一阶段。Agent 工具不提供人工确认入口。
-5. 有问题则选择最早受影响阶段并返工。该阶段及之后的确认失效，任务重新待办；之前的确认保留。历史保存旧轮次的任务、提交版本与确认，不覆盖旧记录。
-6. 策划需要改动时，填写原因并返回第 2–5 节点。主流程确实进入对应节点，制作记录暂停但不消失。完成上游决定和人工审核、再次进入第六节点后，用户选择最早受影响阶段恢复。
+1. Passing preproduction human review creates the production record automatically. Existing node 6 projects can initialize it with `promo_video_production_update(action=start)`. Old delivery results do not automatically count as six-stage acceptance.
+2. The agent first reads `promo_video_production`, adds/updates tasks (`task`) according to current guidance, and records owner and pending/in-progress/blocked/completed status. Completed tasks must reference real artifacts from this workflow.
+3. When all current tasks are complete, `submit` binds deliverables and the current registered video. Unresolved video feedback blocks submission.
+4. At node 6, the user reviews deliverables and acceptance checklists and opens video annotations. Only after entering confirmation evidence, clicking “Confirm this version and continue,” and confirming again does the workflow advance. Agent tools expose no human confirmation entry point.
+5. For problems, select the earliest affected stage and rework it. Confirmation for that stage and later stages becomes invalid and tasks return to pending; earlier confirmations remain. History preserves old-round tasks, submitted versions, and confirmations.
+6. For planning changes, enter a reason and return to nodes 2–5. The main workflow enters that node and pauses production without deleting its record. After upstream decisions and human review, the user chooses the earliest affected stage when resuming node 6.
 
-## 约束
+## Constraints
 
-- `expectedRevision`、重试键和提交 ID 防止并发覆盖或确认旧轮次。
-- 所有非素材阶段须提交当前注册视频；确认时重新检查视频版本和计划版本。
-- 六阶段确认不替代最终后端文件检查。`lock_production` 同时要求全部阶段完成、当前计划与视频匹配、无未解决批注，以及原有后端验证通过。
-- CutWorkBench 仍只有一个执行节点。桥接只同步当前阶段、轮次、子任务及指导，不创建另一套阶段状态机，也不将指导文字视为视频验证证据。
-- 改动内容后的受影响阶段由人明确选择；这是有记录的影响判断，不是声称系统已经能够自动理解全部视频依赖。
-- 历史工程/素材不复制，制作记录仅保存引用；真实工作流和旧批准不进行自动迁移。
+- `expectedRevision`, retry keys, and submission IDs prevent concurrent overwrites and confirmation of old rounds.
+- Every non-material stage requires the current registered video; confirmation rechecks video and plan versions.
+- Six-stage confirmation does not replace final backend file checks. `lock_production` also requires all stages complete, matching current plan/video, no unresolved annotations, and existing backend verification.
+- CutWorkBench retains one execution node. The bridge synchronizes only the current stage, round, subtasks, and guidance; it creates no second stage state machine and does not treat guidance as video verification evidence.
+- People explicitly choose affected stages after content changes. This is a recorded impact judgment, not a claim that the system understands every video dependency automatically.
+- Historical projects/media are not copied; production records store references only. Real workflows and old approvals are not automatically migrated.
 
-## 测试
+## Tests
 
-`video-production.test.mjs` 覆盖多任务、阻塞、返工、过期预览、人工确认、策划返回、恢复和并发重试；原完整视频流程测试要求走完六个阶段后才能锁定。`serve-production-demo.mjs` 生成不带视频副本的独立交互样例。
+`video-production.test.mjs` covers multiple tasks, blocking, rework, stale previews, human confirmation, planning returns, resumption, and concurrent retries. The original full-video workflow test now requires all six stages before locking. `serve-production-demo.mjs` creates an independent interactive example without video copies.
 
-2026-09-08 验证：Promo 75 项测试、CutWorkBench 105 项测试通过；真实 MCP 联调验证了制作指导同步与原审片修改链路。工作台独立样例实测了“确认素材 → 粗剪返工 → 返回素材计划 → 上游确认后恢复”，恢复后进入第三轮，保留素材阶段的既有确认。上游确认在该样例中通过测试数据模拟，未改动真实项目。
+2026-09-08 validation: 75 Promo tests and 105 CutWorkBench tests passed. Real MCP integration verified production-guidance synchronization and the original video-review revision path. An independent workbench demo exercised “confirm materials → rough-cut rework → return to material plan → resume after upstream confirmation,” entering round 3 and retaining the earlier material-stage confirmation. Upstream confirmation was simulated in test data; real projects were untouched.

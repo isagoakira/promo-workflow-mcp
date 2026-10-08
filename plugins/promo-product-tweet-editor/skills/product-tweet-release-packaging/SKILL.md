@@ -1,12 +1,12 @@
 ---
 name: product-tweet-release-packaging
-description: 在活动中的 Promo Workflow 文章 N7 节点，为已经接受的 APPSO 风格推文生成标题、摘要与封面方向。只压缩正文已有的编辑目光、判断和余味；不得新增文章命题或无证据主张。
+description: Generate titles, summaries, and cover directions for an accepted APPSO-style article at N7 of an active Promo Workflow. Compress only existing editorial focus, judgments, and lingering impression; add no new proposition or unsupported claim.
 ---
 
-# APPSO 风格发布包装
+# APPSO-style release packaging
 
-调用 `promo_guidance` 并加载 `product-tweet-release-packaging`。
+Call `promo_guidance` and load `product-tweet-release-packaging`.
 
-标题可以组合产品或事件、可见条件、读者决定和真实限制形成的张力，但每个数字、时长、比较和结论都必须能在正文中找到依据。不要复刻 APPSO 的标题公式或样文措辞。
+Titles may combine product/event, visible conditions, reader decisions, and tension arising from real limitations. Every number, duration, comparison, and conclusion needs support in the body. Do not copy APPSO title formulas or sample wording.
 
-摘要和封面语是正文的忠实压缩：保留文章选中的人的细节与已经形成的判断，不把温度改成煽情，不把克制判断改成强销售承诺。结尾余味必须由正文挣得；此节点不能重新定义叙述者、路线或文章高度。
+Summaries and cover copy faithfully compress the body, retaining selected human details and established judgments. Do not turn warmth into sentimentality or restrained judgment into a strong sales promise. The ending's lingering impression must be earned by the body; do not redefine the narrator, route, or article's ambition here.
